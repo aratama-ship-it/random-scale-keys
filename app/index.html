@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja" data-world="daylight">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="PCキーボードのA〜Zで、ランダムなスケール配置を演奏するブラウザアプリ">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+  <title>random-scale-keys v0.3.1</title>
+</head>
+<body tabindex="-1">
+  <canvas id="terrain" aria-hidden="true"></canvas>
+  <div id="tension-track" aria-hidden="true"><span id="tension-fill"></span></div>
+
+  <main class="app-shell">
+    <header class="topbar">
+      <p class="version">random-scale-keys v0.3.1</p>
+      <p class="take-status" aria-live="polite">
+        <span id="status-world">世界 daylight</span>
+        <span aria-hidden="true">／</span>
+        <span id="status-seed">seed —</span>
+        <span aria-hidden="true">／</span>
+        <strong id="status-label">待機</strong>
+        <span id="status-position"></span>
+        <span id="status-section"></span>
+      </p>
+      <button id="primary-action" class="button button-primary" type="button">演奏開始</button>
+    </header>
+
+    <section class="terrain-stage" aria-label="演奏状態">
+      <p id="chord" class="chord" aria-live="polite">I</p>
+      <output id="countin" class="countin" aria-live="assertive"></output>
+      <p id="answer" class="answer" aria-live="polite"></p>
+    </section>
+
+    <div id="content" class="content">
+      <section class="performance" aria-label="キーボード地形">
+        <form id="settings" class="settings">
+          <label>世界
+            <select id="world" name="world">
+              <option value="daylight">daylight</option>
+              <option value="night">night</option>
+            </select>
+          </label>
+          <label>クオンタイズ
+            <select id="quantize" name="quantize">
+              <option value="off">OFF</option>
+              <option value="4">4分</option>
+              <option value="8" selected>8分</option>
+              <option value="16">16分</option>
+            </select>
+          </label>
+          <label>seed
+            <input id="seed" name="seed" autocomplete="off" spellcheck="false">
+          </label>
+          <button id="reroll" class="button button-secondary" type="button">振り直し</button>
+        </form>
+
+        <div id="keyboard" class="keyboard" aria-label="AからZのキー配置"></div>
+        <p class="legend"><span>● 安定</span><span>◐ 浮遊</span><span>▲ 緊張</span><span>効果: dly / swp / oct / stt / —</span></p>
+        <p class="mobile-message">このアプリは物理キーボードで演奏します。PCで開いてください</p>
+      </section>
+
+      <aside id="finished-panel" class="finished-panel" aria-labelledby="finished-title" hidden>
+        <h1 id="finished-title">テイク完了</h1>
+        <p id="take-summary"></p>
+        <div class="export-actions">
+          <button id="wav" class="button button-primary" type="button">WAVを書き出す</button>
+          <button id="json" class="button button-secondary" type="button">JSONを書き出す</button>
+        </div>
+        <p class="export-note">WAVの生成は約4秒</p>
+        <div class="finish-actions">
+          <button id="retake" class="button button-secondary" type="button">同じ配置でもう1テイク</button>
+          <button id="finish-reroll" class="button button-secondary" type="button">配置を振り直す</button>
+        </div>
+        <p id="share-link" class="share-link"></p>
+      </aside>
+    </div>
+  </main>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

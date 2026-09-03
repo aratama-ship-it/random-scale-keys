@@ -100,3 +100,22 @@
 - git dir は iCloud外 `~/git-repos/random-scale-keys`（`--separate-git-dir`）。コミット者 ARATA URAWA <circusarata@gmail.com>（repoローカル設定）
 - 公開対象: prototype/・README・PROJECT_NOTES・index.html。`design/`（判断用HTML等）は .gitignore で除外
 - 運用: `git add -A` はフックで禁止。更新時はパスを明示して add → commit → `git push origin main`
+
+### 2026-09-04 耳のゲート 2回目（本人判定）
+
+- v0.2.1（形・フレーズ応答・噛み合い・音色の調整＋クオンタイズ既定8分）を公開URLで試聴 → 本人「だいぶよくなりました」＝**ゲート通過**
+- 次: M1（地形図UI）の仕様確定へ。置き場・世界数は本人判断待ち
+
+### 2026-09-04 M1 app v0.3.0（Codex実装・Claude検証）
+
+- 置き場: `app/`（prototype のモジュールを import で再利用。prototype/・design/・ルート index.html は未変更）
+- `node --test app/tests/` 4/4、prototype 15/15、`node --check` 全通過。style.css の :root はトークンシート §6 と一致、
+  コンポーネントにマジックナンバー無し（ブレークポイントのみ）。トークン外の描画値は terrain.js の VISUAL に集約し README に列挙
+- プレビュー実機（Claude Code ブラウザ）: 待機→カウントイン（拍の数字）→演奏中（フォーム無効化・フォーカスbody・小節/セクション表示）
+  →Enterで停止→完了パネル（WAV/JSON/もう1テイク/振り直し/共有リンク）まで確認。26タイル・3段の段ずれ・役割記号・凡例・
+  世界B（暗）・幅390pxのPC案内（演奏開始が無効）を確認。console error は前ページ由来の favicon 404 のみ
+- **未確認**: 演奏中の打鍵→発音→ログ（ブラウザペインが非表示だと AudioContext の時計が進まず、カウントインで止まる。
+  打鍵経路は playCode のコードレビューで prototype v0.2.1 と同一規則を確認）。音の実機確認は本人（公開URL /app/）
+- design-lint（390×844／1440×900）: NG 1件＝#chord の行送り 1.30（→ トークンシート --lh-h1 を 1.5 に変更）。
+  WARN 21件＝上帯・状態行・和音名がキャンバス（動的背景）上にある（→ 不透明の --bg の帯を敷く）。両方 v0.3.1 で修正
+- レポート: `web-projects/design-lint/reports/2026-09-04_localhost-app/report.md`

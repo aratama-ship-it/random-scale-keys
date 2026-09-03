@@ -28,3 +28,19 @@ python3 -m http.server 8962 --bind 127.0.0.1
 `http://127.0.0.1:8962/prototype/` を開き「演奏開始」→ A〜Zを打つ。テストは `prototype/` で `node --test tests/`。
 実装計画（判断用HTML）: `http://127.0.0.1:8962/design/IMPLEMENTATION_PLAN_2026-09-03.html`
 （Claude Codeのプレビューでは `.claude/launch.json` の `random-scale-keys`＝同じ8962番で配信。`/` は `/prototype/` へ）
+
+## 起動（app v0.3.0）
+
+上記と同じローカルサーバーを起動し、`http://127.0.0.1:8962/app/` を開く。
+
+## トークンシートに無い値
+
+`design/TOKEN_SHEET.md` に未収録で、M1仕様に指定された描画値は `app/terrain.js` の `VISUAL` に集約している。
+
+- 打鍵円: 半径 8→40px、700ms
+- 応答円: 半径 6→24px（時間は打鍵円と共通）
+- 着地ブルーム: 世界ごとの明色トークンを最大12%合成
+- Canvasの描画線: 1.5px（打鍵タイルの押下枠と共通）
+- 打鍵円の上昇距離: 描画半径の2倍
+- 終止時の背景復帰: 1500ms
+- disabledボタンの不透明度: 0.45
