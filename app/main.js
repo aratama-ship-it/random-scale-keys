@@ -23,8 +23,10 @@ import {
   updateTension,
   velocityFromInterval,
 } from "../prototype/gravity.mjs";
-import { downloadTakeJson, downloadTakeWav } from "../prototype/render.js";
+import { downloadTakeJson } from "../prototype/render.js";
 import { createSynth } from "../prototype/synth.js";
+import { downloadTakeMidi } from "./midi.js";
+import { downloadMixWav, downloadStems } from "./stems.js";
 import { formatParams, parseParams, rowOffsetPx, transition } from "./ui-core.mjs";
 import { createTerrain } from "./terrain.js";
 
@@ -50,6 +52,7 @@ const elements = {
   countin: document.querySelector("#countin"),
   finishedPanel: document.querySelector("#finished-panel"),
   finishReroll: document.querySelector("#finish-reroll"),
+  exportStatus: document.querySelector("#export-status"),
   json: document.querySelector("#json"),
   keyboard: document.querySelector("#keyboard"),
   primary: document.querySelector("#primary-action"),
@@ -66,6 +69,8 @@ const elements = {
   statusWorld: document.querySelector("#status-world"),
   takeSummary: document.querySelector("#take-summary"),
   tensionFill: document.querySelector("#tension-fill"),
+  stems: document.querySelector("#stems"),
+  midi: document.querySelector("#midi"),
   wav: document.querySelector("#wav"),
   world: document.querySelector("#world"),
 };
@@ -321,6 +326,7 @@ function scheduleAhead() {
 
 async function beginTake(eventType) {
   await closeAudio();
+  elements.exportStatus.textContent = "";
   if (eventType === "START") rebuildLayout();
   const nextState = transition(state, eventType);
   const world = getWorld(layout.worldId);
@@ -495,6 +501,20 @@ function showError(error) {
   elements.statusLabel.textContent = `エラー: ${error.message}`;
 }
 
+const exportButtons = [elements.wav, elements.stems, elements.midi, elements.json];
+
+async function runExport(task) {
+  exportButtons.forEach((button) => { button.disabled = true; });
+  try {
+    await task();
+  } catch (error) {
+    console.error(error);
+    elements.exportStatus.textContent = `書き出しに失敗しました（${error.message}）`;
+  } finally {
+    exportButtons.forEach((button) => { button.disabled = false; });
+  }
+}
+
 elements.primary.addEventListener("click", () => {
   if (state === "idle") beginTake("START").catch(showError);
   else if (state === "finished") beginTake("RETAKE").catch(showError);
@@ -512,19 +532,38 @@ elements.finishReroll.addEventListener("click", () => {
 });
 elements.world.addEventListener("change", () => rebuildLayout());
 elements.seed.addEventListener("change", () => rebuildLayout());
-elements.json.addEventListener("click", () => takeLog && downloadTakeJson(takeLog));
-elements.wav.addEventListener("click", async () => {
+elements.json.addEventListener("click", () => {
   if (!takeLog) return;
-  elements.wav.disabled = true;
-  elements.statusLabel.textContent = "WAV生成中";
-  try {
-    await downloadTakeWav(takeLog);
-    elements.statusLabel.textContent = "WAV書き出し完了";
-  } catch (error) {
-    showError(error);
-  } finally {
-    elements.wav.disabled = false;
-  }
+  runExport(async () => {
+    elements.exportStatus.textContent = "JSONを書き出し中…";
+    downloadTakeJson(takeLog);
+    elements.exportStatus.textContent = "JSONを書き出しました";
+  });
+});
+elements.wav.addEventListener("click", () => {
+  if (!takeLog) return;
+  runExport(async () => {
+    elements.exportStatus.textContent = "WAVをレンダー中…";
+    await downloadMixWav(takeLog);
+    elements.exportStatus.textContent = "WAVを書き出しました";
+  });
+});
+elements.stems.addEventListener("click", () => {
+  if (!takeLog) return;
+  runExport(async () => {
+    await downloadStems(takeLog, ({ index, total }) => {
+      elements.exportStatus.textContent = `ステム ${index}/${total} をレンダー中…`;
+    });
+    elements.exportStatus.textContent = "ステム3本を書き出しました";
+  });
+});
+elements.midi.addEventListener("click", () => {
+  if (!takeLog) return;
+  runExport(async () => {
+    elements.exportStatus.textContent = "MIDIを書き出し中…";
+    downloadTakeMidi(takeLog);
+    elements.exportStatus.textContent = "MIDIを書き出しました";
+  });
 });
 window.addEventListener("keydown", handleKeyDown);
 window.addEventListener("keyup", (event) => setKeyPressed(event.code, false));

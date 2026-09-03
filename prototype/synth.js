@@ -64,9 +64,13 @@ function whiteNoiseBuffer(context, duration, random) {
   return buffer;
 }
 
-export function createSynth(context, { worldId, bpm, destination = context.destination, seed = 1 }) {
+export function createSynth(context, { worldId, bpm, destination = context.destination, seed = 1, stem = null }) {
+  if (stem !== null && !["lead", "accomp", "fx"].includes(stem)) {
+    throw new TypeError(`Unknown stem: ${stem}`);
+  }
   const world = getWorld(worldId);
   const beatSec = 60 / bpm;
+  const isStem = stem !== null;
   const impulseRandom = mulberry32(seed);
   const drumRandom = mulberry32(seed + 1);
   const master = context.createGain();
@@ -79,6 +83,11 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   const reverbOutput = context.createGain();
   const padBus = context.createGain();
   const leadBus = context.createGain();
+  const accompBus = context.createGain();
+  const clickBus = context.createGain();
+  const leadDryOutput = context.createGain();
+  const accompDryOutput = context.createGain();
+  const fxOutput = context.createGain();
   const delayInput = context.createGain();
   const delayLeft = context.createDelay(4);
   const delayRight = context.createDelay(4);
@@ -96,9 +105,18 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   compressor.release.value = 0.15;
   saturator.curve = makeSaturationCurve();
   saturator.oversample = "2x";
-  master.connect(compressor);
-  compressor.connect(saturator);
-  saturator.connect(destination);
+  if (isStem) {
+    master.connect(destination);
+  } else {
+    master.connect(compressor);
+    compressor.connect(saturator);
+    saturator.connect(destination);
+  }
+
+  leadDryOutput.gain.value = stem === "lead" ? 1 : 0;
+  accompDryOutput.gain.value = stem === "accomp" ? 1 : 0;
+  fxOutput.gain.value = stem === "fx" ? 1 : 0;
+  clickBus.gain.value = isStem ? 0 : 1;
 
   convolver.buffer = makeImpulseResponse(context, impulseRandom);
   reverbInput.gain.value = 0.2;
@@ -111,14 +129,19 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   reverbHighpass.connect(reverbLowpass);
   reverbLowpass.connect(reverbOutput);
   reverbOutput.gain.value = 0.35;
-  reverbOutput.connect(master);
+  reverbOutput.connect(isStem ? fxOutput : master);
 
   padBus.gain.value = 1;
-  padBus.connect(master);
+  padBus.connect(isStem ? accompDryOutput : master);
   padBus.connect(reverbInput);
   leadBus.gain.value = 1;
-  leadBus.connect(master);
+  leadBus.connect(isStem ? leadDryOutput : master);
   leadBus.connect(reverbInput);
+  accompBus.connect(accompDryOutput);
+  clickBus.connect(accompDryOutput);
+  leadDryOutput.connect(master);
+  accompDryOutput.connect(master);
+  fxOutput.connect(master);
 
   delayLeft.delayTime.value = beatSec * 0.75;
   delayRight.delayTime.value = beatSec * 0.75;
@@ -136,8 +159,11 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   feedbackRightToLeft.connect(delayLeft);
   delayMerger.connect(delayLowpass);
   delayLowpass.connect(delayOutput);
-  delayOutput.connect(master);
+  delayOutput.connect(isStem ? fxOutput : master);
   delayOutput.connect(reverbInput);
+
+  const accompDestination = isStem ? accompBus : master;
+  const clickDestination = isStem ? clickBus : master;
 
   function voice({ midi, type, detune = 0, gain = 1, when, length, envelope, destinationNode = master, reverb = true, filter, delaySend = false, pan = null }) {
     const oscillator = context.createOscillator();
@@ -186,7 +212,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
     oscillator.stop(end + 0.02);
   }
 
-  function fmElectricPiano({ midi, gain, modulationIndex, when, length, envelope, filter, delaySend }) {
+  function fmElectricPiano({ midi, gain, modulationIndex, when, length, envelope, filter, delaySend, destinationNode = leadBus }) {
     const carrier = context.createOscillator();
     const modulator = context.createOscillator();
     const modulationGain = context.createGain();
@@ -221,7 +247,8 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
     modulationGain.connect(carrier.frequency);
     carrier.connect(amplitude);
     amplitude.connect(lowpass);
-    lowpass.connect(leadBus);
+    lowpass.connect(destinationNode);
+    if (destinationNode !== leadBus) lowpass.connect(reverbInput);
     if (delaySend) lowpass.connect(delayInput);
     carrier.start(when);
     modulator.start(when);
@@ -234,7 +261,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
       ? { attack: 0.005, decay: 0.35, sustain: 0.2, release: 0.25 }
       : { attack: 0.008, decay: 0.5, sustain: 0.3, release: 0.6 };
     if (options.release !== undefined) envelope.release = options.release;
-    const destinationNode = leadBus;
+    const destinationNode = isStem && options.stemRole === "accomp" ? accompBus : leadBus;
     const scheduleSingle = (time, gainScale = 1) => {
       const cutoff = cutoffForTension(tension, options.cutoffMinimum ?? 1200);
       const filter = {
@@ -253,14 +280,15 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
           envelope,
           filter,
           delaySend: effect === "delay",
+          destinationNode,
         });
-        voice({ midi: note.midi + 12, type: "sine", gain: velocity * gainScale * 0.2 * 0.18, when: time, length, envelope, destinationNode, reverb: false, filter, delaySend: effect === "delay" });
+        voice({ midi: note.midi + 12, type: "sine", gain: velocity * gainScale * 0.2 * 0.18, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
       } else {
-        voice({ midi: note.midi, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length, envelope, destinationNode, reverb: false, filter, delaySend: effect === "delay" });
-        voice({ midi: note.midi, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length, envelope, destinationNode, reverb: false, filter, delaySend: effect === "delay" });
+        voice({ midi: note.midi, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
+        voice({ midi: note.midi, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
       }
       if (effect === "octave") {
-        voice({ midi: note.midi + 12, type: "sine", gain: velocity * gainScale * 0.3 * 0.2, when: time, length, envelope, destinationNode, reverb: false, filter });
+        voice({ midi: note.midi + 12, type: "sine", gain: velocity * gainScale * 0.3 * 0.2, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter });
       }
     };
     if (effect === "stutter") {
@@ -296,9 +324,9 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   function scheduleBass(midi, when, duration = beatSec * 0.45, gainScale = 1, release = 0.08) {
     const envelope = { attack: 0.005, decay: 0.08, sustain: 0.65, release };
     const gain = 0.16 * gainScale;
-    voice({ midi, type: "sine", gain, when, length: duration, envelope, reverb: false });
+    voice({ midi, type: "sine", gain, when, length: duration, envelope, destinationNode: accompDestination, reverb: false });
     if (worldId === "daylight") {
-      voice({ midi, type: "square", gain: gain * 0.15, when, length: duration, envelope, reverb: false });
+      voice({ midi, type: "square", gain: gain * 0.15, when, length: duration, envelope, destinationNode: accompDestination, reverb: false });
     }
   }
 
@@ -319,14 +347,14 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
     gain.gain.setValueAtTime(0.5, when);
     gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.12);
     oscillator.connect(gain);
-    gain.connect(master);
+    gain.connect(accompDestination);
     const click = context.createBufferSource();
     const clickGain = context.createGain();
     click.buffer = whiteNoiseBuffer(context, 0.005, drumRandom);
     clickGain.gain.setValueAtTime(0.5, when);
     clickGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.005);
     click.connect(clickGain);
-    clickGain.connect(master);
+    clickGain.connect(accompDestination);
     duckForKick(when);
     oscillator.start(when);
     oscillator.stop(when + 0.13);
@@ -353,9 +381,9 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
     bodyGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.08);
     noise.connect(bandpass);
     bandpass.connect(noiseGain);
-    noiseGain.connect(master);
+    noiseGain.connect(accompDestination);
     body.connect(bodyGain);
-    bodyGain.connect(master);
+    bodyGain.connect(accompDestination);
     noise.start(when);
     noise.stop(when + 0.13);
     body.start(when);
@@ -377,7 +405,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
     highpass.connect(gain);
     panner.pan.value = 0.2;
     gain.connect(panner);
-    panner.connect(master);
+    panner.connect(accompDestination);
     source.start(when);
     source.stop(when + duration);
   }
@@ -390,7 +418,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
     gain.gain.setValueAtTime(accented ? 0.18 : 0.11, when);
     gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.045);
     oscillator.connect(gain);
-    gain.connect(master);
+    gain.connect(clickDestination);
     oscillator.start(when);
     oscillator.stop(when + 0.05);
   }
@@ -398,7 +426,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   function scheduleResolution(rootMidi, when) {
     const envelope = { attack: 0.005, decay: 0.1, sustain: 0.7, release: 0.15 };
     const octaveOneRoot = 24 + (rootMidi % 12);
-    voice({ midi: octaveOneRoot, type: "sine", gain: 0.22, when, length: 0.4, envelope, reverb: false });
+    voice({ midi: octaveOneRoot, type: "sine", gain: 0.22, when, length: 0.4, envelope, destinationNode: accompDestination, reverb: false });
     padBus.gain.cancelScheduledValues(when);
     padBus.gain.setValueAtTime(1.5, when);
     padBus.gain.linearRampToValueAtTime(1, when + beatSec);
@@ -411,7 +439,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
     const tonic = worldId === "daylight" ? "I" : "i";
     const rootMidi = world.rootMidi;
     schedulePad(tonic, when, 0.1, 0, { release: 2.5 });
-    scheduleLead({ midi: rootMidi }, when, 0.1, 0.45, "none", 0, { release: 2.5 });
+    scheduleLead({ midi: rootMidi }, when, 0.1, 0.45, "none", 0, { release: 2.5, stemRole: "accomp" });
     scheduleBass(24 + (rootMidi % 12), when, 0.1, 1, 2.5);
   }
 

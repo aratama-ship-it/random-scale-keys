@@ -6,8 +6,8 @@ PCキーボードのA〜Zに、スケール音とエフェクトをランダム�
 - 企画の正本: `obsidian-vault/ideas/2026-09-03_ランダム鍵盤で曲になるアプリ_ブレスト.md`
 - 関連（所有境界を分ける）: `apps/utility-app/juggling-music-reactor/`（ジャグリング動作→音楽。イベント契約v0の正本）。
   本アプリは同契約のサブセットを使う。相互にファイルを書き換えない。
-- 状態（2026-09-04）: **prototype/ v0.2.1 で「音階の重力」規則を音だけ検証中**（本人判定「ある程度曲っぽい」→
-  16小節の形・フレーズ応答・音色を調整済み。クオンタイズは既定8分で切替可）。UI設計・MVP実装は未着手。
+- 状態（2026-09-04）: **app v0.4.0 のM2実装までローカルで完了**。16小節の演奏からミックスWAV、
+  ステム3本、SMF Format 1、JSONを書き出せる。Logic Proでの読み込み・頭揃えは本人確認前。
 - 試聴用の公開（GitHub Pages）: https://aratama-ship-it.github.io/random-scale-keys/ （`prototype/` へ転送）。
   公開リポジトリには `prototype/`・README・PROJECT_NOTES だけを載せ、`design/`（判断用HTML・トークンシート・参照メモ）は
   `.gitignore` で除外する（tonescoreの前例に倣う）。
@@ -29,9 +29,13 @@ python3 -m http.server 8962 --bind 127.0.0.1
 実装計画（判断用HTML）: `http://127.0.0.1:8962/design/IMPLEMENTATION_PLAN_2026-09-03.html`
 （Claude Codeのプレビューでは `.claude/launch.json` の `random-scale-keys`＝同じ8962番で配信。`/` は `/prototype/` へ）
 
-## 起動（app v0.3.0）
+## 起動（app v0.4.0）
 
 上記と同じローカルサーバーを起動し、`http://127.0.0.1:8962/app/` を開く。
+
+完了したテイクはミックスWAV、ドライのlead/accomp、全ソース由来のfxリターン、MIDI、JSONとして書き出せる。
+ミックスWAVには従来どおりマスターのコンプレッサー／サチュレーターが掛かる一方、ステムは後段処理のために
+それらをバイパスする。そのため、ステム3本の単純な和とミックスWAVは一致しない。
 
 ## トークンシートに無い値
 
