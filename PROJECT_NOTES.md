@@ -93,3 +93,10 @@
   OfflineAudioContext.suspend/resume による小節ごとの just-in-time 生成。テスト15/15（境界の予約漏れ・二重予約テスト追加）
 - 実測（16小節・128打鍵・世界A）: **28秒 → 3.7秒**。従来の一括予約（同ページで手動レンダー）は18.3秒
 - 出力差: JIT版と一括版の差は最大 ±1LSB（2,727サンプル、±2LSB超え0）＝出力音は同じ。尺42.40秒・ピーク0.879 は不変
+
+### 2026-09-04 GitHub公開（本人依頼）
+
+- repo: https://github.com/aratama-ship-it/random-scale-keys （public）。Pages: https://aratama-ship-it.github.io/random-scale-keys/ （main / root、`/` は `prototype/` へ転送）
+- git dir は iCloud外 `~/git-repos/random-scale-keys`（`--separate-git-dir`）。コミット者 ARATA URAWA <circusarata@gmail.com>（repoローカル設定）
+- 公開対象: prototype/・README・PROJECT_NOTES・index.html。`design/`（判断用HTML等）は .gitignore で除外
+- 運用: `git add -A` はフックで禁止。更新時はパスを明示して add → commit → `git push origin main`
