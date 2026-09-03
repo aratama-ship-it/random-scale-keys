@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>random-scale-keys prototype v0.2.1</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color-scheme: light dark; }
+    body { margin: 16px; }
+    h1 { margin: 0 0 16px; font-size: 1rem; }
+    fieldset { margin: 0 0 16px; }
+    button, input, select { margin: 2px; }
+    .key-row { display: flex; gap: 4px; margin: 4px 0; }
+    .key { width: 112px; min-height: 44px; padding: 4px; border: 1px solid currentColor; font-size: 0.75rem; }
+    .role-stable { background: #b9e2bd; color: #102b13; }
+    .role-floating { background: #bad8ee; color: #102637; }
+    .role-tension { background: #f3c28f; color: #38200a; }
+    .key.pressed { filter: invert(1); }
+    #layout { overflow-x: auto; margin-bottom: 16px; }
+    #tension { width: 320px; max-width: 100%; }
+    output { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>random-scale-keys prototype v0.2.1</h1>
+
+  <fieldset>
+    <legend>設定</legend>
+    <label>世界
+      <select id="world">
+        <option value="daylight">A: daylight</option>
+        <option value="night">B: night</option>
+      </select>
+    </label>
+    <label>seed <input id="seed" inputmode="numeric" size="12"></label>
+    <label>クオンタイズ
+      <select id="quantize">
+        <option value="off">OFF</option>
+        <option value="4">4分音符</option>
+        <option value="8" selected>8分音符</option>
+        <option value="16">16分音符</option>
+      </select>
+    </label>
+    <button id="reroll" type="button">振り直し</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>演奏と書き出し</legend>
+    <button id="start" type="button">演奏開始</button>
+    <button id="stop" type="button">停止</button>
+    <button id="replay" type="button">再演</button>
+    <button id="wav" type="button">WAV書き出し</button>
+    <button id="json" type="button">JSON書き出し</button>
+    <p>停止: Enter</p>
+  </fieldset>
+
+  <section aria-label="キー配置">
+    <h2>キー配置</h2>
+    <div id="layout"></div>
+    <p id="answer" aria-live="polite"></p>
+  </section>
+
+  <section aria-label="演奏状態">
+    <h2>演奏状態</h2>
+    <p>状態: <output id="status">待機</output></p>
+    <p>クオンタイズ: <output id="quantize-status">8分</output></p>
+    <p>
+      <label for="tension">T:</label>
+      <progress id="tension" max="100" value="0"></progress>
+      <output id="tension-value">0</output>
+    </p>
+    <p>位置: <output id="position">1 / 16 小節・1 拍</output></p>
+    <p>セクション: <output id="section">intro</output></p>
+    <p>和音: <output id="chord">I</output></p>
+    <p>イベント数: <output id="event-count">0</output></p>
+  </section>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+.DS_Store
+node_modules/
+*.wav
+*.log
+# 判断用HTML・トークンシート・参照メモは公開リポジトリに載せない（tonescoreの前例に倣う）
+design/

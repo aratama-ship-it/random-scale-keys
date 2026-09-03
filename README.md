@@ -1,0 +1,30 @@
+# random-scale-keys（仮称）— ランダム配置のスケール鍵盤で即興が曲になるアプリ
+
+PCキーボードのA〜Zに、スケール音とエフェクトをランダムに割り当て、タイピングのように打つだけで
+30〜60秒の即興作品ができるブラウザアプリ。作品はWAV・ステム・MIDIとして持ち帰れる（Logic Pro連携）。
+
+- 企画の正本: `obsidian-vault/ideas/2026-09-03_ランダム鍵盤で曲になるアプリ_ブレスト.md`
+- 関連（所有境界を分ける）: `apps/utility-app/juggling-music-reactor/`（ジャグリング動作→音楽。イベント契約v0の正本）。
+  本アプリは同契約のサブセットを使う。相互にファイルを書き換えない。
+- 状態（2026-09-04）: **prototype/ v0.2.1 で「音階の重力」規則を音だけ検証中**（本人判定「ある程度曲っぽい」→
+  16小節の形・フレーズ応答・音色を調整済み。クオンタイズは既定8分で切替可）。UI設計・MVP実装は未着手。
+- 試聴用の公開（GitHub Pages）: https://aratama-ship-it.github.io/random-scale-keys/ （`prototype/` へ転送）。
+  公開リポジトリには `prototype/`・README・PROJECT_NOTES だけを載せ、`design/`（判断用HTML・トークンシート・参照メモ）は
+  `.gitignore` で除外する（tonescoreの前例に倣う）。
+- 置き場は仮。`apps/music-plugins/` に置いた理由は「音楽制作の道具」だから。本人判断で移動可。
+
+## フォルダ
+
+- `prototype/` — 音だけの30秒プロトタイプ（規則が「曲に聞こえるか」の最初のゲート）。仕様は `prototype/SPEC_gravity_v0.md`
+- `PROJECT_NOTES.md` — 決定事項・検証結果の記録
+
+## 起動（prototype）
+
+```sh
+cd "apps/music-plugins/random-scale-keys"
+python3 -m http.server 8962 --bind 127.0.0.1
+```
+
+`http://127.0.0.1:8962/prototype/` を開き「演奏開始」→ A〜Zを打つ。テストは `prototype/` で `node --test tests/`。
+実装計画（判断用HTML）: `http://127.0.0.1:8962/design/IMPLEMENTATION_PLAN_2026-09-03.html`
+（Claude Codeのプレビューでは `.claude/launch.json` の `random-scale-keys`＝同じ8962番で配信。`/` は `/prototype/` へ）
