@@ -6,7 +6,7 @@
   <meta name="description" content="PCキーボードのA〜Zで、ランダムなスケール配置を演奏するブラウザアプリ">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./style.css">
-  <title>random-scale-keys v0.13.0</title>
+  <title>random-scale-keys v0.14.0</title>
 </head>
 <body tabindex="-1">
   <canvas id="terrain" aria-hidden="true"></canvas>
@@ -15,9 +15,11 @@
 
   <main class="app-shell">
     <header class="topbar">
-      <p class="version">random-scale-keys v0.13.0</p>
+      <p class="version">random-scale-keys v0.14.0</p>
       <p class="take-status" aria-live="polite">
         <span id="status-world">世界 daylight</span>
+        <span aria-hidden="true">／</span>
+        <span id="status-key">キー C</span>
         <span aria-hidden="true">／</span>
         <span id="status-seed">seed —</span>
         <span aria-hidden="true">／</span>
@@ -42,6 +44,23 @@
             <select id="world" name="world">
               <option value="daylight">daylight</option>
               <option value="night">night</option>
+            </select>
+          </label>
+          <label class="performance-setting">キー
+            <select id="key" name="key">
+              <option value="random">ランダム</option>
+              <option value="0" selected>C</option>
+              <option value="1">C♯</option>
+              <option value="2">D</option>
+              <option value="3">E♭</option>
+              <option value="4">E</option>
+              <option value="5">F</option>
+              <option value="6">F♯</option>
+              <option value="7">G</option>
+              <option value="8">A♭</option>
+              <option value="9">A</option>
+              <option value="10">B♭</option>
+              <option value="11">B</option>
             </select>
           </label>
           <label class="performance-setting">スケール

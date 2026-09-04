@@ -227,7 +227,7 @@ function scheduleAccompanimentStep(step) {
   if (resolving) {
     currentChord = tonicChordForScale(layout.scaleId);
     if (stepInBar !== 0) synth.schedulePad(currentChord, when, beatSec * (4 - (beat % 4)), tension);
-    synth.scheduleResolution(world.rootMidi, when);
+    synth.scheduleResolution(layout.rootMidi, when);
     pendingResolutionBeat = Infinity;
     resolutionReverbUntilBeat = beat + 2;
   }

@@ -27,6 +27,7 @@ function audioNode(properties = {}) {
 function mockContext() {
   const gainNodes = [];
   const convolverNodes = [];
+  const oscillatorNodes = [];
   const params = [];
   const param = (initial = 0) => {
     const value = audioParam(initial);
@@ -39,6 +40,7 @@ function mockContext() {
     destination: audioNode(),
     gainNodes,
     convolverNodes,
+    oscillatorNodes,
     params,
     createBuffer(channels, length, sampleRate = this.sampleRate) {
       const data = Array.from({ length: channels }, () => new Float32Array(length));
@@ -69,12 +71,16 @@ function mockContext() {
     createDelay: () => audioNode({ delayTime: param() }),
     createChannelMerger: () => audioNode(),
     createStereoPanner: () => audioNode({ pan: param() }),
-    createOscillator: () => audioNode({
-      frequency: param(),
-      detune: param(),
-      start() {},
-      stop() {},
-    }),
+    createOscillator() {
+      const node = audioNode({
+        frequency: param(),
+        detune: param(),
+        start() {},
+        stop() {},
+      });
+      oscillatorNodes.push(node);
+      return node;
+    },
     createBufferSource: () => audioNode({ start() {}, stop() {}, buffer: null }),
   };
 }
@@ -180,4 +186,23 @@ test("all four lead timbres schedule without changing the effect contract", () =
     );
     assert.equal(typeof handle.release, "function", timbre);
   });
+});
+
+test("rootMidi option drives tapestop and ending while the world default remains available", () => {
+  const midiFrequency = (midi) => 440 * 2 ** ((midi - 69) / 12);
+  const shiftedContext = mockContext();
+  const shifted = createSynth(shiftedContext, { worldId: "daylight", scaleId: "ionian", bpm: 100, rootMidi: 62 });
+  assert.equal(shifted.rootMidi, 62);
+  shifted.scheduleSfx("tapestop", 0, 1);
+  assert.deepEqual(
+    shiftedContext.oscillatorNodes.slice(-3).map((node) => node.frequency.calls[0][1]),
+    [midiFrequency(62), midiFrequency(62), midiFrequency(62) / 2],
+  );
+  shifted.scheduleEnding(2);
+  assert.ok(shiftedContext.oscillatorNodes.some((node) => (
+    node.frequency.calls.some(([kind, frequency, when]) => kind === "set" && frequency === midiFrequency(62) && when === 2)
+  )));
+
+  const legacy = createSynth(mockContext(), { worldId: "night", scaleId: "aeolian", bpm: 88 });
+  assert.equal(legacy.rootMidi, 57);
 });

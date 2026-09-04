@@ -395,3 +395,11 @@
 - 実測（合成ログ 128 打鍵）: 三全音は ionian 5→**0**、aeolian 5→0、mixolydian 10→0、lydian 5→0（メジャーペンタは元々 0）。
   差し替え率 30〜46%（うち折返しが多い。合成ログはオクターブ ±1 を無作為に跨ぐため）。最大跳躍 10〜14 半音
 - 未確認のまま本人へ: 差し替えの違和感（押した鍵と鳴る音のずれ）、`→ 度数` 表示の見え方
+
+### 2026-09-04 M12 部A app v0.14.0 キーの選択（Codex実装・Claude検証）
+
+- `resolveRootMidi(worldId, keyChoice, seed)`: 12キー＋`random`（`hashSeed(seed) % 12`）。世界の基準（daylight 60／night 57）に最も近いオクターブ
+  （実測: daylight 54〜65、night 51〜62、既定は 60／57 で不変）。`layout.rootMidi`／`layout.key`、ログに `rootMidi`／`key`、URL `key`、上帯に「キー」表示
+- `world.rootMidi` の直接参照は実コードでは 16 か所（仕様に書いた 29 は grep の重複込み）。すべて `log.rootMidi ?? 既定` に置換、古いログは既定で鳴る
+- 検証: テスト prototype 76/76・app 37/37、`node --check` 8ファイル。既定キーでは伴奏＋配置の予約列が M11 と 42/42 一致（音は不変）。
+  キー D（2）の配置例: rootMidi 62、KeyA=度数5・オクターブ+1 → midi 81

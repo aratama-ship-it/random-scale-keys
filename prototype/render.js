@@ -1,9 +1,9 @@
 import {
   automaticSfxForStep,
   approachDegree,
-  chordMidiNotes,
+  chordMidiNotesFromRoot,
   chordRootInterval,
-  chordRootMidi,
+  chordRootMidiFromRoot,
   chordSeventhInterval,
   chooseChord,
   decayTension,
@@ -25,8 +25,8 @@ import {
 } from "./gravity.mjs";
 import { createSynth } from "./synth.js";
 
-function rootMidiForChord(worldId, scaleId, chordName) {
-  return chordRootMidi(worldId, scaleId, chordName, 2);
+function rootMidiForChord(rootMidi, scaleId, chordName) {
+  return chordRootMidiFromRoot(rootMidi, scaleId, chordName, 2);
 }
 
 function tensionAtBeat(events, beat) {
@@ -42,14 +42,15 @@ function repeatedTail(entries, chordName) {
   return count;
 }
 
-function voicingForChord(worldId, scaleId, chordName, previousVoices, options) {
-  const pitchClasses = chordMidiNotes(worldId, scaleId, chordName)
+function voicingForChord(rootMidi, scaleId, chordName, previousVoices, options) {
+  const pitchClasses = chordMidiNotesFromRoot(rootMidi, scaleId, chordName)
     .map((midi) => midi % 12);
   return voiceLead(previousVoices, pitchClasses, options);
 }
 
 export function accompanimentPlan(log) {
   const world = getWorld(log.worldId);
+  const rootMidi = log.rootMidi ?? world.rootMidi;
   const scaleId = resolveScaleId(log.worldId, log.scaleId);
   const events = [...log.events].sort((left, right) => left.beat - right.beat);
   const tonic = tonicChordForScale(scaleId);
@@ -57,7 +58,7 @@ export function accompanimentPlan(log) {
     barIndex: 0,
     decisionBeat: null,
     chordName: tonic,
-    voices: voicingForChord(log.worldId, scaleId, tonic),
+    voices: voicingForChord(rootMidi, scaleId, tonic),
   }];
   for (let barIndex = 1; barIndex < log.bars; barIndex += 1) {
     const decisionBeat = barIndex * 4 - 0.5;
@@ -77,7 +78,7 @@ export function accompanimentPlan(log) {
       previousChord: previous.chordName,
       repeatCount: repeatedTail(entries, previous.chordName),
       previousVoices: previous.voices,
-      tonicPitchClass: world.rootMidi % 12,
+      tonicPitchClass: rootMidi % 12,
       resolution,
     });
     const arrival = phraseRole(sectionForBar(barIndex), barIndex % 4) === "arrival";
@@ -85,16 +86,16 @@ export function accompanimentPlan(log) {
       barIndex,
       decisionBeat,
       chordName,
-      voices: voicingForChord(log.worldId, scaleId, chordName, previous.voices, { rootPosition: arrival }),
+      voices: voicingForChord(rootMidi, scaleId, chordName, previous.voices, { rootPosition: arrival }),
     });
   }
   return entries;
 }
 
-function bassChordNotes(worldId, scaleId, chordName) {
-  const root = rootMidiForChord(worldId, scaleId, chordName);
+function bassChordNotes(rootMidi, scaleId, chordName) {
+  const root = rootMidiForChord(rootMidi, scaleId, chordName);
   let previous = root - 1;
-  return chordMidiNotes(worldId, scaleId, chordName).map((midi) => {
+  return chordMidiNotesFromRoot(rootMidi, scaleId, chordName).map((midi) => {
     let candidate = midi % 12;
     while (candidate <= previous) candidate += 12;
     previous = candidate;
@@ -119,6 +120,7 @@ export function partitionEventsByBar(events, bars, beatsPerBar = 4) {
 
 export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBeat = 0, toBeat = Infinity) {
   const world = getWorld(log.worldId);
+  const rootMidi = log.rootMidi ?? world.rootMidi;
   const scaleId = resolveScaleId(log.worldId, log.scaleId);
   const bpm = log.bpm;
   const beatSec = 60 / bpm;
@@ -184,7 +186,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       lastTensionBeat = beat;
       chordName = resolving ? tonicChordForScale(scaleId) : chordPlan[barIndex].chordName;
       padVoices = resolving
-        ? voicingForChord(log.worldId, scaleId, chordName, padVoices, { rootPosition: arrival })
+        ? voicingForChord(rootMidi, scaleId, chordName, padVoices, { rootPosition: arrival })
         : chordPlan[barIndex].voices;
       if (schedulesStep) {
         synth.schedulePad(chordName, startTime + beat * beatSec, beatSec * 4, tension, {
@@ -202,10 +204,10 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
 
     if (resolving) {
       chordName = tonicChordForScale(scaleId);
-      padVoices = voicingForChord(log.worldId, scaleId, chordName, padVoices, { rootPosition: arrival });
+      padVoices = voicingForChord(rootMidi, scaleId, chordName, padVoices, { rootPosition: arrival });
       if (schedulesStep) {
         if (stepInBar !== 0) synth.schedulePad(chordName, when, beatSec * (4 - (beat % 4)), tension, { voices: padVoices });
-        synth.scheduleResolution(world.rootMidi, when);
+        synth.scheduleResolution(rootMidi, when);
       }
       pendingResolutionBeat = Infinity;
       resolutionReverbUntilBeat = beat + 2;
@@ -219,7 +221,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       });
     });
     if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
-    const bassNotes = bassChordNotes(log.worldId, scaleId, chordName);
+    const bassNotes = bassChordNotes(rootMidi, scaleId, chordName);
     const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
     const thirdBeatBass = currentTension >= 0.3 ? bassNotes[0] + 12 : fifth;
     if (stepInBar === 0) {
@@ -230,13 +232,13 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
         synth.schedulePad(chordName, when, beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
       }
     } else if (stepInBar === 12 && role === "cadence") {
-      const seventhPitchClass = (world.rootMidi + chordSeventhInterval(scaleId, chordName)) % 12;
+      const seventhPitchClass = (rootMidi + chordSeventhInterval(scaleId, chordName)) % 12;
       synth.scheduleBass(nearestMidiForPitchClass(seventhPitchClass, thirdBeatBass), when, 0.28, 0.7);
     } else if (stepInBar === 14) {
       const nextChord = chordPlan[barIndex + 1]?.chordName ?? tonicChordForScale(scaleId);
       const nextRootSemitone = chordRootInterval(scaleId, nextChord);
       const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(scaleId)));
-      const approachPitchClass = (world.rootMidi + approach) % 12;
+      const approachPitchClass = (rootMidi + approach) % 12;
       synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
     }
     if (snareForStep(section, stepInBar)) {
@@ -264,6 +266,7 @@ export async function renderTakeToWav(log) {
     scaleId: resolveScaleId(log.worldId, log.scaleId),
     bpm: log.bpm,
     seed: log.seed,
+    rootMidi: log.rootMidi ?? getWorld(log.worldId).rootMidi,
   });
   const beatSec = 60 / log.bpm;
   const barsAtSuspendFrame = new Map();

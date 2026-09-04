@@ -13,6 +13,7 @@ import {
   approachDegree,
   EFFECT_COUNTS,
   KEY_CODES,
+  KEY_NAMES,
   ROLE_COUNTS,
   SCALES,
   chordDegreeNotes,
@@ -20,8 +21,10 @@ import {
   chordForBar,
   chordLabel,
   chordMidiNotes,
+  chordMidiNotesFromRoot,
   chordRootInterval,
   chordRootMidi,
+  chordRootMidiFromRoot,
   chordSeventhInterval,
   chordForTension,
   chordToneWeight,
@@ -33,11 +36,13 @@ import {
   harmonyScaleId,
   isResolution,
   melodicGravity,
+  midiForDegreeFromRoot,
   noteMemory,
   noteLengthFromInterval,
   phraseRole,
   quantize,
   reverbSendFromSilence,
+  resolveRootMidi,
   sectionForBar,
   scoreChord,
   tonicChordForScale,
@@ -130,6 +135,40 @@ test("createLayout is deterministic for the same seed and changes for another se
   assert.equal(createLayout(1, "night").scaleId, "aeolian");
 });
 
+test("KEY_NAMES and resolveRootMidi cover all twelve keys in each world's nearest octave", () => {
+  assert.deepEqual(KEY_NAMES, ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"]);
+  [
+    { worldId: "daylight", minimum: 54, maximum: 65, defaultRoot: 60 },
+    { worldId: "night", minimum: 51, maximum: 62, defaultRoot: 57 },
+  ].forEach(({ worldId, minimum, maximum, defaultRoot }) => {
+    assert.equal(resolveRootMidi(worldId, undefined, 42), defaultRoot);
+    for (let key = 0; key < KEY_NAMES.length; key += 1) {
+      const rootMidi = resolveRootMidi(worldId, key, 42);
+      assert.ok(rootMidi >= minimum && rootMidi <= maximum, `${worldId} ${KEY_NAMES[key]} ${rootMidi}`);
+      assert.equal(rootMidi % 12, key, `${worldId} ${KEY_NAMES[key]}`);
+    }
+  });
+});
+
+test("random keys are seed-deterministic and do not consume the layout random stream", () => {
+  assert.equal(resolveRootMidi("daylight", "random", "fixed"), resolveRootMidi("daylight", "random", "fixed"));
+  assert.equal(resolveRootMidi("night", "random", 42) % 12, 42 % 12);
+  const defaultLayout = createLayout(42, "daylight", "ionian");
+  const randomLayout = createLayout(42, "daylight", "ionian", "random");
+  assert.deepEqual(
+    Object.values(randomLayout.keys).map(({ degree, role, effect, octave }) => [degree, role, effect, octave]),
+    Object.values(defaultLayout.keys).map(({ degree, role, effect, octave }) => [degree, role, effect, octave]),
+  );
+});
+
+test("root-based note and chord helpers transpose without changing the legacy wrappers", () => {
+  assert.equal(midiForDegreeFromRoot(62, "ionian", 3, -1), 54);
+  assert.deepEqual(chordMidiNotesFromRoot(62, "ionian", "I"), [62, 66, 69]);
+  assert.equal(chordRootMidiFromRoot(62, "ionian", "V", 2), 45);
+  assert.deepEqual(chordMidiNotesFromRoot(60, "ionian", "I"), chordMidiNotes("daylight", "ionian", "I"));
+  assert.equal(chordRootMidiFromRoot(57, "aeolian", "i", 2), chordRootMidi("night", "aeolian", "i", 2));
+});
+
 test("createLayout assigns all keys with exact role and effect counts", () => {
   const layout = createLayout(42, "daylight");
   assert.equal(Object.values(EFFECT_COUNTS).reduce((sum, value) => sum + value, 0), 26);
@@ -149,20 +188,23 @@ test("createLayout assigns all keys with exact role and effect counts", () => {
   }
 });
 
-test("createLayout preserves the v0.9.0 degree, role, and octave sequence for seed 42", () => {
+test("default-key createLayout preserves the full v0.13.0 assignment for seed 42", () => {
   const expected = {
-    KeyA: [1, "stable", -1], KeyB: [5, "stable", 0], KeyC: [5, "stable", 0],
-    KeyD: [2, "floating", -1], KeyE: [1, "stable", 0], KeyF: [6, "floating", 1],
-    KeyG: [6, "floating", 1], KeyH: [3, "stable", 0], KeyI: [2, "floating", 0],
-    KeyJ: [1, "stable", 1], KeyK: [7, "tension", 0], KeyL: [3, "stable", 1],
-    KeyM: [2, "floating", 0], KeyN: [5, "stable", -1], KeyO: [6, "floating", -1],
-    KeyP: [4, "tension", 0], KeyQ: [3, "stable", 0], KeyR: [7, "tension", 0],
-    KeyS: [4, "tension", -1], KeyT: [1, "stable", 0], KeyU: [7, "tension", 0],
-    KeyV: [5, "stable", -1], KeyW: [7, "tension", 1], KeyX: [4, "tension", 0],
-    KeyY: [3, "stable", 1], KeyZ: [6, "floating", 0],
+    KeyA: [1, "stable", "none", -1, 48], KeyB: [5, "stable", "arpeggio", 0, 67], KeyC: [5, "stable", "octave", 0, 67],
+    KeyD: [2, "floating", "delay", -1, 50], KeyE: [1, "stable", "delay", 0, 60], KeyF: [6, "floating", "arpeggio", 1, 81],
+    KeyG: [6, "floating", "octave", 1, 81], KeyH: [3, "stable", "none", 0, 64], KeyI: [2, "floating", "arpeggio", 0, 62],
+    KeyJ: [1, "stable", "none", 1, 72], KeyK: [7, "tension", "none", 0, 71], KeyL: [3, "stable", "stutter", 1, 76],
+    KeyM: [2, "floating", "sweep", 0, 62], KeyN: [5, "stable", "sweep", -1, 55], KeyO: [6, "floating", "stutter", -1, 57],
+    KeyP: [4, "tension", "none", 0, 65], KeyQ: [3, "stable", "none", 0, 64], KeyR: [7, "tension", "delay", 0, 71],
+    KeyS: [4, "tension", "none", -1, 53], KeyT: [1, "stable", "sweep", 0, 60], KeyU: [7, "tension", "none", 0, 71],
+    KeyV: [5, "stable", "none", -1, 55], KeyW: [7, "tension", "delay", 1, 83], KeyX: [4, "tension", "octave", 0, 65],
+    KeyY: [3, "stable", "none", 1, 76], KeyZ: [6, "floating", "none", 0, 69],
   };
-  const actual = Object.fromEntries(Object.entries(createLayout(42, "daylight").keys)
-    .map(([code, { degree, role, octave }]) => [code, [degree, role, octave]]));
+  const layout = createLayout(42, "daylight");
+  assert.equal(layout.rootMidi, 60);
+  assert.equal(layout.key, 0);
+  const actual = Object.fromEntries(Object.entries(layout.keys)
+    .map(([code, { degree, role, effect, octave, midi }]) => [code, [degree, role, effect, octave, midi]]));
   assert.deepEqual(actual, expected);
 });
 

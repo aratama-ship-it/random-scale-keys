@@ -1,6 +1,7 @@
 export const KEY_CODES = Object.freeze(
   Array.from({ length: 26 }, (_, index) => `Key${String.fromCharCode(65 + index)}`),
 );
+export const KEY_NAMES = Object.freeze(["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"]);
 
 export const EFFECT_COUNTS = Object.freeze({ none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
 export const ARPEGGIO_GAINS = Object.freeze([1, 0.85, 0.75]);
@@ -253,6 +254,21 @@ export function resolveScaleId(worldId, scaleId) {
   return Object.hasOwn(SCALES, scaleId) ? scaleId : world.defaultScaleId;
 }
 
+export function resolveRootMidi(worldId, keyChoice, seed) {
+  const world = getWorld(worldId);
+  let pitchClass;
+  if (keyChoice === undefined) {
+    pitchClass = world.rootMidi % 12;
+  } else if (keyChoice === "random") {
+    pitchClass = hashSeed(seed) % 12;
+  } else if (Number.isInteger(keyChoice) && keyChoice >= 0 && keyChoice < KEY_NAMES.length) {
+    pitchClass = keyChoice;
+  } else {
+    throw new RangeError(`Invalid key choice: ${keyChoice}`);
+  }
+  return world.rootMidi + (((pitchClass - (world.rootMidi % 12) + 18) % 12) - 6);
+}
+
 function scaleIdFromScaleOrWorld(scaleOrWorldId) {
   if (Object.hasOwn(SCALES, scaleOrWorldId)) return scaleOrWorldId;
   return getWorld(scaleOrWorldId).defaultScaleId;
@@ -266,12 +282,16 @@ export function roleForDegree(scaleId, degree) {
 }
 
 export function midiForDegree(worldId, scaleId, degree, octave = 0) {
-  const world = getWorld(worldId);
+  return midiForDegreeFromRoot(getWorld(worldId).rootMidi, scaleId, degree, octave);
+}
+
+export function midiForDegreeFromRoot(rootMidi, scaleId, degree, octave = 0) {
+  if (!Number.isFinite(rootMidi)) throw new TypeError("rootMidi must be finite");
   const scale = getScale(scaleId);
   if (!Number.isInteger(degree) || degree < 1 || degree > scale.intervals.length) {
     throw new RangeError(`Invalid scale degree: ${degree}`);
   }
-  return world.rootMidi + scale.intervals[degree - 1] + octave * 12;
+  return rootMidi + scale.intervals[degree - 1] + octave * 12;
 }
 
 function validateMelodyNote(note, scale, name, requireOctave = false) {
@@ -616,9 +636,13 @@ export function chordDegreeNotes(scaleId, chordName) {
 }
 
 export function chordMidiNotes(worldId, scaleId, chordName, octave = 0) {
-  const world = getWorld(worldId);
+  return chordMidiNotesFromRoot(getWorld(worldId).rootMidi, scaleId, chordName, octave);
+}
+
+export function chordMidiNotesFromRoot(rootMidi, scaleId, chordName, octave = 0) {
+  if (!Number.isFinite(rootMidi)) throw new TypeError("rootMidi must be finite");
   return triadForDegree(scaleId, degreeForChordLabel(scaleId, chordName)).intervals
-    .map((interval) => world.rootMidi + interval + octave * 12);
+    .map((interval) => rootMidi + interval + octave * 12);
 }
 
 export function chordRootInterval(scaleId, chordName) {
@@ -635,15 +659,22 @@ export function chordSeventhInterval(scaleId, chordName) {
 }
 
 export function chordRootMidi(worldId, scaleId, chordName, octaveNumber = 2) {
-  const pitchClass = (getWorld(worldId).rootMidi + chordRootInterval(scaleId, chordName)) % 12;
+  return chordRootMidiFromRoot(getWorld(worldId).rootMidi, scaleId, chordName, octaveNumber);
+}
+
+export function chordRootMidiFromRoot(rootMidi, scaleId, chordName, octaveNumber = 2) {
+  if (!Number.isFinite(rootMidi)) throw new TypeError("rootMidi must be finite");
+  const pitchClass = (rootMidi + chordRootInterval(scaleId, chordName)) % 12;
   return (octaveNumber + 1) * 12 + pitchClass;
 }
 
-export function createLayout(seed, worldId, requestedScaleId) {
+export function createLayout(seed, worldId, requestedScaleId, keyChoice) {
   const normalizedSeed = hashSeed(seed);
   const random = mulberry32(normalizedSeed);
   const world = getWorld(worldId);
   const scaleId = resolveScaleId(worldId, requestedScaleId);
+  const rootMidi = resolveRootMidi(worldId, keyChoice, normalizedSeed);
+  const key = rootMidi % 12;
   const scale = getScale(scaleId);
   const roleCounts = allocateKeys(scale.roles);
   const roles = shuffled(expandedCounts(roleCounts), random);
@@ -665,13 +696,13 @@ export function createLayout(seed, worldId, requestedScaleId) {
     keys[code] = {
       degree,
       octave,
-      midi: midiForDegree(worldId, scaleId, degree, octave),
+      midi: midiForDegreeFromRoot(rootMidi, scaleId, degree, octave),
       role,
       effect: effects[index],
     };
   });
 
-  return { seed: normalizedSeed, worldId: world.id, scaleId, keys };
+  return { seed: normalizedSeed, worldId: world.id, scaleId, rootMidi, key, keys };
 }
 
 export function decayTension(tension, deltaBeats) {

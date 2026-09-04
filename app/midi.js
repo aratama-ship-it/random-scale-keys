@@ -1,7 +1,7 @@
 import {
   ARPEGGIO_GAINS,
   arpeggioOffsets,
-  chordMidiNotes,
+  chordMidiNotesFromRoot,
   defaultTimbres,
   getWorld,
   resolveScaleId,
@@ -65,7 +65,9 @@ function note(track, trackName, midi, when, length, velocity) {
   });
 }
 
-export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, events = [] }) {
+export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, events = [], rootMidi: requestedRootMidi }) {
+  const rootMidi = requestedRootMidi ?? getWorld(worldId).rootMidi;
+  if (!Number.isFinite(rootMidi)) throw new TypeError("rootMidi must be finite");
   const scaleId = resolveScaleId(worldId, requestedScaleId);
   const beatSec = 60 / bpm;
   const usedTimbres = [...new Set(events
@@ -109,7 +111,7 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, ev
   }
 
   function schedulePad(chordName, when, duration, _tension, options = {}) {
-    (options.voices ?? chordMidiNotes(worldId, scaleId, chordName, -1)).forEach((midi) => {
+    (options.voices ?? chordMidiNotesFromRoot(rootMidi, scaleId, chordName, -1)).forEach((midi) => {
       note(tracks.pad, "pad", midi, when, duration, options.gainScale ?? 1);
     });
   }
@@ -137,7 +139,6 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, ev
 
   function scheduleEnding(when) {
     const tonic = tonicChordForScale(scaleId);
-    const rootMidi = getWorld(worldId).rootMidi;
     schedulePad(tonic, when, 0.1);
     scheduleLead({ midi: rootMidi }, when, 0.1, 0.45);
     scheduleBass(24 + (rootMidi % 12), when, 0.1, 1);
@@ -147,6 +148,7 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, ev
     context: { currentTime: 0, sampleRate: 44100 },
     worldId,
     scaleId,
+    rootMidi,
     bpm,
     beatSec,
     tracks,

@@ -58,11 +58,12 @@ test("transition covers the four-state flow and leaves invalid events unchanged"
 });
 
 test("parseParams and formatParams round-trip and resolve unknown world or scale values", () => {
-  const parsed = parseParams("?world=night&scale=hirajoshi&seed=abc");
-  assert.deepEqual(parsed, { world: "night", scale: "hirajoshi", seed: "abc" });
+  const parsed = parseParams("?world=night&scale=hirajoshi&seed=abc&key=random");
+  assert.deepEqual(parsed, { world: "night", scale: "hirajoshi", seed: "abc", key: "random" });
   assert.deepEqual(parseParams(formatParams(parsed)), parsed);
-  assert.deepEqual(parseParams("?world=space&scale=unknown&seed=42"), { world: "daylight", scale: "ionian", seed: "42" });
-  assert.deepEqual(parseParams("?world=night&scale=unknown&seed=42"), { world: "night", scale: "aeolian", seed: "42" });
+  assert.deepEqual(parseParams("?world=daylight&scale=ionian&seed=42&key=11"), { world: "daylight", scale: "ionian", seed: "42", key: 11 });
+  assert.deepEqual(parseParams("?world=space&scale=unknown&seed=42&key=12"), { world: "daylight", scale: "ionian", seed: "42", key: undefined });
+  assert.deepEqual(parseParams("?world=night&scale=unknown&seed=42"), { world: "night", scale: "aeolian", seed: "42", key: undefined });
 });
 
 test("remainingSeconds is integral, clamps before start, and never becomes negative", () => {
@@ -143,6 +144,15 @@ test("validateTakeLog accepts the contract and explains rejected logs", () => {
   assert.deepEqual(validateTakeLog(legacy), { ok: true });
 });
 
+test("validateTakeLog accepts matching rootMidi and key while retaining legacy logs", () => {
+  const keyed = { ...validTakeLog(), rootMidi: 62, key: 2 };
+  assert.deepEqual(validateTakeLog(keyed), { ok: true });
+  assert.match(validateTakeLog({ ...keyed, rootMidi: 128 }).reason, /rootMidi/);
+  assert.match(validateTakeLog({ ...keyed, key: 12 }).reason, /key/);
+  assert.match(validateTakeLog({ ...keyed, key: 3 }).reason, /一致/);
+  assert.deepEqual(validateTakeLog(validTakeLog()), { ok: true });
+});
+
 test("validateTakeLog accepts SFX without note fields and rejects missing SFX fields", () => {
   const sfxLog = validTakeLog();
   sfxLog.events = [{ time: 0.6, beat: 1, kind: "sfx", code: "Digit4", sfx: "zap", variant: 0, velocity: 0.8 }];
@@ -197,12 +207,20 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.13.0 waiting screen includes melodic gravity, timbre controls, the performance tip, SFX legend, and cadence engine", async () => {
+test("v0.14.0 waiting screen includes key selection without changing the cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../style.css", import.meta.url), "utf8");
-  assert.match(html, /<title>random-scale-keys v0\.13\.0<\/title>/);
-  assert.match(html, /<p class="version">random-scale-keys v0\.13\.0<\/p>/);
+  assert.match(html, /<title>random-scale-keys v0\.14\.0<\/title>/);
+  assert.match(html, /<p class="version">random-scale-keys v0\.14\.0<\/p>/);
+  assert.match(html, /id="status-key">キー C/);
+  assert.match(html, /<select id="key" name="key">/);
+  const keySelect = html.match(/<select id="key" name="key">[\s\S]*?<\/select>/)?.[0];
+  assert.equal(keySelect?.match(/<option value="(?:random|[0-9]|1[01])"/g)?.length, 13);
+  assert.match(main, /createLayout\(normalizedSeed\(\), elements\.world\.value, elements\.scale\.value, selectedKeyChoice\(\)\)/);
+  assert.match(main, /rootMidi: layout\.rootMidi/);
+  assert.match(main, /key: layout\.key/);
+  assert.match(main, /resetKeyForWorld\(\)/);
   assert.match(html, /id="melody"/);
   assert.match(html, /<option value="on" selected>ON<\/option>/);
   assert.match(main, /melody: selectedMelody\(\)/);

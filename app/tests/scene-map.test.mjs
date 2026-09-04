@@ -73,8 +73,32 @@ test("sceneToEvents maps catches to presses, preserves releases only as log even
     assert.equal(Number.isFinite(event.keyMidi), true);
   });
   assert.equal(log.scaleId, "ionian");
+  assert.equal(log.rootMidi, 60);
+  assert.equal(log.key, 0);
   assert.equal(log.melody, "gravity");
   assert.equal(log.engine, "accomp-v4");
+});
+
+test("sceneToEvents records and applies an explicit key root", () => {
+  const options = {
+    worldId: "daylight",
+    scaleId: "ionian",
+    seed: 123,
+    bpm: 100,
+    bars: 1,
+    melody: "off",
+    quantize: { enabled: false, division: null },
+  };
+  const legacy = sceneToEvents(fixture, options);
+  const shifted = sceneToEvents(fixture, { ...options, keyChoice: 2 });
+  assert.equal(shifted.rootMidi, 62);
+  assert.equal(shifted.key, 2);
+  const legacyPresses = legacy.events.filter((event) => event.kind === "press");
+  const shiftedPresses = shifted.events.filter((event) => event.kind === "press");
+  assert.deepEqual(
+    shiftedPresses.map((event) => event.midi),
+    legacyPresses.map((event) => event.midi + 2),
+  );
 });
 
 test("sceneToEvents records melody off and leaves every assigned press unchanged", () => {

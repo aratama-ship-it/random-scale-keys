@@ -137,3 +137,17 @@ test("recording synth writes an arpeggio as three scale-degree triplet notes", (
     { midi: 67, when: 2 * beatSec / 3, length: Math.max(0.12, (beatSec / 3) * 0.9), velocity: midiVelocity(0.8 * 0.75) },
   ]);
 });
+
+test("MIDI ending follows rootMidi and falls back to the world's legacy root", () => {
+  const shifted = createMidiRecorder({ worldId: "daylight", scaleId: "ionian", bpm: 100, rootMidi: 62 });
+  shifted.scheduleEnding(0);
+  assert.equal(shifted.rootMidi, 62);
+  assert.deepEqual(shifted.tracks.pad.map(({ midi }) => midi), [50, 54, 57]);
+  assert.deepEqual(shifted.tracks.lead.map(({ midi }) => midi), [62]);
+  assert.deepEqual(shifted.tracks.bass.map(({ midi }) => midi), [26]);
+
+  const legacy = createMidiRecorder({ worldId: "daylight", scaleId: "ionian", bpm: 100 });
+  legacy.scheduleEnding(0);
+  assert.equal(legacy.rootMidi, 60);
+  assert.deepEqual(legacy.tracks.pad.map(({ midi }) => midi), [48, 52, 55]);
+});

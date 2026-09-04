@@ -1,5 +1,6 @@
 import { audioBufferToWav, downloadBlob, renderTakeToWav, scheduleRecordedTake } from "../prototype/render.js";
 import { createSynth } from "../prototype/synth.js";
+import { getWorld } from "../prototype/gravity.mjs";
 
 const STEMS = Object.freeze(["lead", "accomp", "fx"]);
 const SAMPLE_RATE = 44100;
@@ -55,6 +56,7 @@ export async function renderStemToWav(log, stem) {
     bpm: log.bpm,
     seed: log.seed,
     stem,
+    rootMidi: log.rootMidi ?? getWorld(log.worldId).rootMidi,
   });
   const suspensionTasks = scheduleOfflineTake(context, synth, log);
   const rendering = context.startRendering();

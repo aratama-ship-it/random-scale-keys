@@ -1,7 +1,7 @@
 import {
   ARPEGGIO_GAINS,
   arpeggioOffsets,
-  chordMidiNotes,
+  chordMidiNotesFromRoot,
   cutoffForTension,
   defaultTimbres,
   getWorld,
@@ -136,11 +136,21 @@ function sfxNoiseBuffer(context, duration, noiseSeed, gateSeconds = 0) {
   return buffer;
 }
 
-export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, destination = context.destination, seed = 1, stem = null }) {
+export function createSynth(context, {
+  worldId,
+  scaleId: requestedScaleId,
+  bpm,
+  destination = context.destination,
+  seed = 1,
+  stem = null,
+  rootMidi: requestedRootMidi,
+}) {
   if (stem !== null && !["lead", "accomp", "fx"].includes(stem)) {
     throw new TypeError(`Unknown stem: ${stem}`);
   }
   const world = getWorld(worldId);
+  const rootMidi = requestedRootMidi ?? world.rootMidi;
+  if (!Number.isFinite(rootMidi)) throw new TypeError("rootMidi must be finite");
   const scaleId = resolveScaleId(worldId, requestedScaleId);
   const beatSec = 60 / bpm;
   const isStem = stem !== null;
@@ -541,7 +551,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   }
 
   function schedulePad(chordName, when, duration, tension = 0, options = {}) {
-    const notes = options.voices ?? chordMidiNotes(worldId, scaleId, chordName, -1);
+    const notes = options.voices ?? chordMidiNotesFromRoot(rootMidi, scaleId, chordName, -1);
     const envelope = worldId === "daylight"
       ? { attack: 0.8, decay: 0.01, sustain: 1, release: 1.5 }
       : { attack: 1.2, decay: 0.01, sustain: 1, release: 2 };
@@ -759,7 +769,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
       if (duration === null) throw new RangeError(`Unknown tapestop variant: ${variant}`);
       const filter = context.createBiquadFilter();
       const gain = context.createGain();
-      const frequency = midiToFrequency(world.rootMidi);
+      const frequency = midiToFrequency(rootMidi);
       filter.type = "lowpass";
       filter.frequency.setValueAtTime(2200, when);
       filter.frequency.exponentialRampToValueAtTime(250, when + duration);
@@ -815,7 +825,6 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
 
   function scheduleEnding(when) {
     const tonic = tonicChordForScale(scaleId);
-    const rootMidi = world.rootMidi;
     schedulePad(tonic, when, 0.1, 0, { release: 2.5 });
     scheduleLead({ midi: rootMidi }, when, 0.1, 0.45, "none", 0, { release: 2.5, stemRole: "accomp" });
     scheduleBass(24 + (rootMidi % 12), when, 0.1, 1, 2.5);
@@ -832,6 +841,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     context,
     worldId,
     scaleId,
+    rootMidi,
     bpm,
     beatSec,
     scheduleLead,

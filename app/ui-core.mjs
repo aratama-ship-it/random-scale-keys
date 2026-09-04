@@ -2,6 +2,14 @@ import { SCALES, resolveScaleId } from "../prototype/gravity.mjs";
 
 const VALID_WORLDS = new Set(["daylight", "night"]);
 
+function validKeyChoice(value) {
+  if (value === "random") return "random";
+  const number = typeof value === "number"
+    ? value
+    : (typeof value === "string" && /^(?:[0-9]|1[01])$/.test(value) ? Number(value) : NaN);
+  return Number.isInteger(number) && number >= 0 && number <= 11 ? number : undefined;
+}
+
 export function lerpColor(fromHex, toHex, amount) {
   const t = Math.min(1, Math.max(0, Number(amount)));
   const parse = (hex) => {
@@ -46,15 +54,18 @@ export function parseParams(search = "") {
     world,
     scale: resolveScaleId(world, params.get("scale")),
     seed: params.get("seed") ?? "",
+    key: validKeyChoice(params.get("key")),
   };
 }
 
-export function formatParams({ world, scale, seed }) {
+export function formatParams({ world, scale, seed, key }) {
   const params = new URLSearchParams();
   const validWorld = VALID_WORLDS.has(world) ? world : "daylight";
   params.set("world", validWorld);
   params.set("scale", resolveScaleId(validWorld, scale));
   params.set("seed", String(seed ?? ""));
+  const normalizedKey = validKeyChoice(key);
+  if (normalizedKey !== undefined) params.set("key", String(normalizedKey));
   return `?${params.toString()}`;
 }
 
@@ -152,6 +163,9 @@ export function validateTakeLog(value) {
   if (value.version !== "gravity-v0") return { ok: false, reason: "version が gravity-v0 ではありません" };
   if (!VALID_WORLDS.has(value.worldId)) return { ok: false, reason: "worldId が daylight または night ではありません" };
   if (value.scaleId !== undefined && !Object.hasOwn(SCALES, value.scaleId)) return { ok: false, reason: "scaleId が既知の音階ではありません" };
+  if (value.rootMidi !== undefined && (!Number.isInteger(value.rootMidi) || value.rootMidi < 0 || value.rootMidi > 127)) return { ok: false, reason: "rootMidi がMIDIノート番号ではありません" };
+  if (value.key !== undefined && (!Number.isInteger(value.key) || value.key < 0 || value.key > 11)) return { ok: false, reason: "key が0から11の整数ではありません" };
+  if (value.rootMidi !== undefined && value.key !== undefined && value.rootMidi % 12 !== value.key) return { ok: false, reason: "rootMidi と key が一致しません" };
   if (typeof value.seed !== "number" || !Number.isFinite(value.seed)) return { ok: false, reason: "seed が数値ではありません" };
   if (typeof value.bpm !== "number" || !Number.isFinite(value.bpm) || value.bpm <= 0) return { ok: false, reason: "bpm が正の数値ではありません" };
   if (!Number.isInteger(value.bars) || value.bars <= 0) return { ok: false, reason: "bars が正の整数ではありません" };

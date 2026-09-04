@@ -5,9 +5,9 @@ import {
   automaticSfxForStep,
   approachDegree,
   chordDegreeNotes,
-  chordMidiNotes,
+  chordMidiNotesFromRoot,
   chordRootInterval,
-  chordRootMidi,
+  chordRootMidiFromRoot,
   chordSeventhInterval,
   chordToneWeight,
   chooseChord,
@@ -20,9 +20,10 @@ import {
   hatForStep,
   hatSwingSeconds,
   isResolution,
+  KEY_NAMES,
   kickForStep,
   LEAD_TIMBRES,
-  midiForDegree,
+  midiForDegreeFromRoot,
   noteMemory,
   noteLengthFromInterval,
   phraseRole,
@@ -91,6 +92,7 @@ const elements = {
   finishReroll: document.querySelector("#finish-reroll"),
   exportStatus: document.querySelector("#export-status"),
   json: document.querySelector("#json"),
+  key: document.querySelector("#key"),
   keyboard: document.querySelector("#keyboard"),
   melody: document.querySelector("#melody"),
   primary: document.querySelector("#primary-action"),
@@ -105,6 +107,7 @@ const elements = {
   settings: document.querySelector("#settings"),
   shareLink: document.querySelector("#share-link"),
   statusLabel: document.querySelector("#status-label"),
+  statusKey: document.querySelector("#status-key"),
   statusPosition: document.querySelector("#status-position"),
   statusSection: document.querySelector("#status-section"),
   statusSeed: document.querySelector("#status-seed"),
@@ -191,6 +194,10 @@ function selectedMelody() {
   return elements.melody.value === "off" ? "off" : "gravity";
 }
 
+function selectedKeyChoice() {
+  return elements.key.value === "random" ? "random" : Number(elements.key.value);
+}
+
 function populateTimbreSelects() {
   [elements.timbre, elements.timbreShift].forEach((select) => {
     select.replaceChildren(...LEAD_TIMBRES.map((timbre) => {
@@ -208,11 +215,16 @@ function resetTimbresForWorld() {
   elements.timbreShift.value = timbres.shift;
 }
 
+function resetKeyForWorld() {
+  elements.key.value = String(getWorld(elements.world.value).rootMidi % 12);
+}
+
 function updateUrl() {
   history.replaceState(null, "", formatParams({
     world: elements.world.value,
     scale: elements.scale.value,
     seed: elements.seed.value,
+    key: selectedKeyChoice(),
   }));
 }
 
@@ -308,7 +320,7 @@ function renderLayout() {
 }
 
 function rebuildLayout({ replaceUrl = true, imported = false } = {}) {
-  layout = createLayout(normalizedSeed(), elements.world.value, elements.scale.value);
+  layout = createLayout(normalizedSeed(), elements.world.value, elements.scale.value, selectedKeyChoice());
   elements.seed.value = String(layout.seed);
   elements.scale.value = layout.scaleId;
   document.documentElement.dataset.world = layout.worldId;
@@ -350,13 +362,14 @@ function renderState() {
   elements.performanceTip.hidden = state !== "idle";
   document.body.dataset.state = state;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
-  [elements.world, elements.scale, elements.melody, elements.quantize, elements.timbre, elements.timbreShift, elements.seed, elements.reroll]
+  [elements.world, elements.key, elements.scale, elements.melody, elements.quantize, elements.timbre, elements.timbreShift, elements.seed, elements.reroll]
     .forEach((control) => { control.disabled = nextTakeSettingsDisabledForState(state); });
   elements.diagnose.disabled = diagnosticDisabledForState(state);
   elements.primary.disabled = (state === "idle" || state === "finished") && narrowScreen.matches;
   elements.primary.textContent = active ? "停止 (Enter)" : finished ? "もう1テイク" : "演奏開始";
   elements.statusLabel.textContent = state === "idle" ? "待機" : state === "countin" ? "カウントイン" : state === "playing" ? "演奏中" : state === "replay" ? "再生中" : "テイク完了";
   elements.statusWorld.textContent = `世界 ${layout?.worldId ?? elements.world.value}`;
+  elements.statusKey.textContent = `キー ${KEY_NAMES[layout?.key ?? Number(elements.key.value)]}`;
   elements.statusSeed.textContent = `seed ${layout?.seed ?? elements.seed.value}`;
   elements.statusPosition.textContent = active ? " 1/16小節" : "";
   elements.statusSection.textContent = active ? " intro" : "";
@@ -387,7 +400,7 @@ function updateFinishedPanel() {
   elements.loadedTake.textContent = loadedTakeFilename ? `読み込んだ${loadedKind}: ${loadedTakeFilename}` : "";
   elements.sceneSummary.hidden = !loadedSceneSummary;
   elements.sceneSummary.textContent = loadedSceneSummary;
-  elements.shareLink.textContent = `共有リンク: ${formatParams({ world: takeLog.worldId, scale: takeLog.scaleId, seed: takeLog.seed })}（配置だけを共有。テイクはWAV/JSONで）`;
+  elements.shareLink.textContent = `共有リンク: ${formatParams({ world: takeLog.worldId, scale: takeLog.scaleId, seed: takeLog.seed, key: selectedKeyChoice() })}（配置だけを共有。テイクはWAV/JSONで）`;
 }
 
 function showAnswer(degree) {
@@ -408,19 +421,19 @@ function scheduleAnswerDisplay(degree, delayMs) {
   scheduledAnswerTimers.push(timer);
 }
 
-function rootMidiForChord(worldId, scaleId, chordName) {
-  return chordRootMidi(worldId, scaleId, chordName, 2);
+function rootMidiForChord(rootMidi, scaleId, chordName) {
+  return chordRootMidiFromRoot(rootMidi, scaleId, chordName, 2);
 }
 
 function voicingForChord(chordName, previousVoices, options) {
-  const pitchClasses = chordMidiNotes(layout.worldId, layout.scaleId, chordName).map((midi) => midi % 12);
+  const pitchClasses = chordMidiNotesFromRoot(layout.rootMidi, layout.scaleId, chordName).map((midi) => midi % 12);
   return voiceLead(previousVoices, pitchClasses, options);
 }
 
 function bassChordNotes(chordName) {
-  const root = rootMidiForChord(layout.worldId, layout.scaleId, chordName);
+  const root = rootMidiForChord(layout.rootMidi, layout.scaleId, chordName);
   let previous = root - 1;
-  return chordMidiNotes(layout.worldId, layout.scaleId, chordName).map((midi) => {
+  return chordMidiNotesFromRoot(layout.rootMidi, layout.scaleId, chordName).map((midi) => {
     let candidate = midi % 12;
     while (candidate <= previous) candidate += 12;
     previous = candidate;
@@ -457,7 +470,7 @@ function chooseNextChord(barIndex, decisionBeat, currentTension) {
     previousChord: currentChord,
     repeatCount: repeatedChordCount(currentChord),
     previousVoices: padVoices,
-    tonicPitchClass: getWorld(layout.worldId).rootMidi % 12,
+    tonicPitchClass: layout.rootMidi % 12,
     resolution,
   });
 }
@@ -473,7 +486,7 @@ function scheduleAnswerAtBoundary(beat, when, section) {
     beat,
     kind: "answer",
     code: null,
-    midi: midiForDegree(layout.worldId, layout.scaleId, degree, 0),
+    midi: midiForDegreeFromRoot(layout.rootMidi, layout.scaleId, degree, 0),
     degree,
     role: roleForDegree(layout.scaleId, degree),
     effect: "none",
@@ -496,7 +509,6 @@ function scheduleAnswerAtBoundary(beat, when, section) {
 }
 
 function scheduleAccompanimentStep(step) {
-  const world = getWorld(layout.worldId);
   const beat = step / PERFORMANCE.stepsPerBeat;
   const barIndex = Math.floor(step / (PERFORMANCE.stepsPerBeat * PERFORMANCE.beatsPerBar));
   const stepInBar = step % (PERFORMANCE.stepsPerBeat * PERFORMANCE.beatsPerBar);
@@ -532,7 +544,7 @@ function scheduleAccompanimentStep(step) {
     currentChord = tonicChordForScale(layout.scaleId);
     padVoices = voicingForChord(currentChord, padVoices, { rootPosition: arrival });
     if (stepInBar !== 0) synth.schedulePad(currentChord, when, synth.beatSec * (PERFORMANCE.beatsPerBar - (beat % PERFORMANCE.beatsPerBar)), tension, { voices: padVoices });
-    synth.scheduleResolution(world.rootMidi, when);
+    synth.scheduleResolution(layout.rootMidi, when);
     pendingResolutionBeat = Infinity;
     resolutionReverbUntilBeat = beat + 2;
     scheduleVisualAt(when, () => {
@@ -560,14 +572,14 @@ function scheduleAccompanimentStep(step) {
       synth.schedulePad(currentChord, when, synth.beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
     }
   } else if (stepInBar === 12 && role === "cadence") {
-    const seventhPitchClass = (world.rootMidi + chordSeventhInterval(layout.scaleId, currentChord)) % 12;
+    const seventhPitchClass = (layout.rootMidi + chordSeventhInterval(layout.scaleId, currentChord)) % 12;
     synth.scheduleBass(nearestMidiForPitchClass(seventhPitchClass, thirdBeatBass), when, 0.28, 0.7);
   } else if (stepInBar === 14) {
     if (barIndex + 1 < PERFORMANCE.bars) nextChord = chooseNextChord(barIndex, beat, currentTension);
     else nextChord = tonicChordForScale(layout.scaleId);
     const nextRootSemitone = chordRootInterval(layout.scaleId, nextChord);
     const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(layout.scaleId)));
-    const approachPitchClass = (world.rootMidi + approach) % 12;
+    const approachPitchClass = (layout.rootMidi + approach) % 12;
     synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
   }
   if (snareForStep(section, stepInBar)) synth.scheduleSnare(when);
@@ -621,6 +633,7 @@ async function beginTake(eventType) {
     scaleId: layout.scaleId,
     bpm: world.bpm,
     seed: layout.seed,
+    rootMidi: layout.rootMidi,
   });
   state = nextState;
   const countInStart = audioContext.currentTime + PERFORMANCE.audioLeadSeconds;
@@ -652,6 +665,8 @@ async function beginTake(eventType) {
     worldId: layout.worldId,
     scaleId: layout.scaleId,
     seed: layout.seed,
+    rootMidi: layout.rootMidi,
+    key: layout.key,
     bpm: world.bpm,
     bars: PERFORMANCE.bars,
     melody: selectedMelody(),
@@ -755,6 +770,7 @@ async function beginReplay() {
     scaleId: takeLog.scaleId,
     bpm: takeLog.bpm,
     seed: takeLog.seed,
+    rootMidi: takeLog.rootMidi ?? getWorld(takeLog.worldId).rootMidi,
   });
   state = transition(state, "REPLAY");
   takeStart = audioContext.currentTime + PERFORMANCE.audioLeadSeconds;
@@ -1018,6 +1034,7 @@ function showError(error) {
 
 function normalizeLoadedLog(log) {
   const defaults = defaultTimbres(log.worldId);
+  const rootMidi = log.rootMidi ?? getWorld(log.worldId).rootMidi;
   const timbres = {
     main: typeof log.timbres?.main === "string" ? log.timbres.main : defaults.main,
     shift: typeof log.timbres?.shift === "string" ? log.timbres.shift : defaults.shift,
@@ -1027,6 +1044,8 @@ function normalizeLoadedLog(log) {
     engine: "accomp-v4",
     melody: log.melody === "off" ? "off" : "gravity",
     scaleId: resolveScaleId(log.worldId, log.scaleId),
+    rootMidi,
+    key: log.key ?? rootMidi % 12,
     timbres,
     events: log.events.map((event) => {
       const section = typeof event.section === "string"
@@ -1077,6 +1096,7 @@ function loadMotionScene(scene, filename = "") {
     seed,
     bpm: world.bpm,
     bars: PERFORMANCE.bars,
+    keyChoice: selectedKeyChoice(),
     melody: selectedMelody(),
     quantize: selectedQuantize(),
   });
@@ -1119,6 +1139,7 @@ async function loadTakeFile(file) {
       loadedSceneSummary = "";
       elements.world.value = takeLog.worldId;
       elements.scale.value = takeLog.scaleId;
+      elements.key.value = String(takeLog.key);
       elements.timbre.value = takeLog.timbres.main;
       elements.timbreShift.value = takeLog.timbres.shift;
       elements.melody.value = takeLog.melody === "off" ? "off" : "on";
@@ -1206,9 +1227,11 @@ elements.finishReroll.addEventListener("click", () => {
 });
 elements.world.addEventListener("change", () => {
   resetTimbresForWorld();
+  resetKeyForWorld();
   rebuildLayout();
 });
 elements.scale.addEventListener("change", () => rebuildLayout());
+elements.key.addEventListener("change", () => rebuildLayout());
 elements.seed.addEventListener("change", () => rebuildLayout());
 elements.scenePlay.addEventListener("click", loadBundledScene);
 elements.takeFile.addEventListener("change", () => {
@@ -1260,6 +1283,8 @@ populateTimbreSelects();
 elements.world.value = initial.world;
 elements.scale.value = initial.scale;
 resetTimbresForWorld();
+if (initial.key === undefined) resetKeyForWorld();
+else elements.key.value = String(initial.key);
 elements.seed.value = initial.seed || randomSeed();
 rebuildLayout();
 renderState();

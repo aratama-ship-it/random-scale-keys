@@ -38,14 +38,14 @@ function sampleLog(bars = 2) {
 }
 
 function recordingSynth() {
-  const calls = { lead: [], pad: [], bass: [], snare: [], hat: [], sfx: [] };
+  const calls = { lead: [], pad: [], bass: [], kick: [], snare: [], hat: [], sfx: [] };
   return {
     beatSec: 0.6,
     calls,
     scheduleLead: (...args) => calls.lead.push(args),
     schedulePad: (...args) => calls.pad.push(args),
     scheduleBass: (...args) => calls.bass.push(args),
-    scheduleKick: () => {},
+    scheduleKick: (...args) => calls.kick.push(args),
     scheduleSnare: (...args) => calls.snare.push(args),
     scheduleHat: (...args) => calls.hat.push(args),
     scheduleSfx: (...args) => calls.sfx.push(args),
@@ -147,6 +147,28 @@ test("accompanimentPlan commits the next bar chord at the last eighth-note posit
   assert.deepEqual(first, second);
   assert.deepEqual(first.map((entry) => entry.decisionBeat), [null, 3.5]);
   assert.equal(first[0].chordName, "I");
+});
+
+test("rootMidi in the log changes the tonic pitch class while a legacy log keeps the world default", () => {
+  const legacy = accompanimentPlan(sampleLog());
+  const shiftedLog = sampleLog();
+  shiftedLog.rootMidi = 62;
+  const shifted = accompanimentPlan(shiftedLog);
+  assert.deepEqual(legacy[0].voices, [60, 64, 67]);
+  assert.deepEqual(shifted[0].voices, [62, 66, 69]);
+  assert.equal(legacy[0].voices[0] % 12, 0);
+  assert.equal(shifted[0].voices[0] % 12, 2);
+});
+
+test("an explicit default key preserves every legacy chord, bass, drum, and automatic SFX reservation", () => {
+  const legacyLog = sampleLog(16);
+  const keyedLog = { ...sampleLog(16), rootMidi: 60, key: 0 };
+  assert.deepEqual(accompanimentPlan(keyedLog), accompanimentPlan(legacyLog));
+  const legacySynth = recordingSynth();
+  const keyedSynth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, legacySynth, legacyLog, 0);
+  scheduleRecordedTake({ currentTime: 0 }, keyedSynth, keyedLog, 0);
+  assert.deepEqual(keyedSynth.calls, legacySynth.calls);
 });
 
 test("scheduleRecordedTake uses voiced pads and the three specified bass positions", () => {

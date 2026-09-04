@@ -6,7 +6,7 @@ PCキーボードのA〜Zに、スケール音とエフェクトをランダム�
 - 企画の正本: `obsidian-vault/ideas/2026-09-03_ランダム鍵盤で曲になるアプリ_ブレスト.md`
 - 関連（所有境界を分ける）: `apps/utility-app/juggling-music-reactor/`（ジャグリング動作→音楽。イベント契約v0の正本）。
   本アプリは同契約のサブセットを使う。相互にファイルを書き換えない。
-- 状態（2026-09-04）: **app v0.13.0 のM12部C実装までローカルで完了**。メロディの重力、21種のスケール選択、数字キーSFX、音色4種とShift切替、
+- 状態（2026-09-04）: **app v0.14.0 のM12部A実装までローカルで完了**。12キー＋ランダムのキー選択、メロディの重力、21種のスケール選択、数字キーSFX、音色4種とShift切替、
   長押しサステイン、残り時間と進捗表示、16小節の演奏、Motion SceneとテイクJSONの読み込み、テイクの再生、
   ミックスWAV、ステム3本、SMF Format 1、JSON書き出しに対応。
 - 試聴用の公開（GitHub Pages）: https://aratama-ship-it.github.io/random-scale-keys/ （`prototype/` へ転送）。
@@ -30,11 +30,22 @@ python3 -m http.server 8962 --bind 127.0.0.1
 実装計画（判断用HTML）: `http://127.0.0.1:8962/design/IMPLEMENTATION_PLAN_2026-09-03.html`
 （Claude Codeのプレビューでは `.claude/launch.json` の `random-scale-keys`＝同じ8962番で配信。`/` は `/prototype/` へ）
 
-## 起動（app v0.13.0、PC専用）
+## 起動（app v0.14.0、PC専用）
 
 上記と同じローカルサーバーを起動し、`http://127.0.0.1:8962/app/` を開く。
 
 同梱の3ボールカスケードは投げ間隔0.3秒で、100BPMの8分音符と一致する。
+
+## キー（ルート音）
+
+設定の「キー」では C〜B の12キー、または「ランダム」を選べる。既定は世界ごとの従来値
+（daylight=C、night=A）で、世界を変更するとその世界の既定へ戻る。「ランダム」はseedから決定するため、
+同じseedなら同じキーになり、「振り直し」でseedを変えると再決定される。
+
+選択したキーは、世界の基準音域（daylight=C4、night=A3）に最も近いオクターブで鳴る。上帯には実際のキーを表示し、
+URLの `key` パラメータには `0`〜`11` または `random` を記録する。テイクJSONには実音の `rootMidi` とピッチクラスの
+`key` が入り、再生・WAV・ステム・MIDI・Motion Scene変換で同じルート音を使う。旧JSONのように `rootMidi` が無い場合は
+世界の従来値へ戻る。伴奏エンジンは `accomp-v4` のまま変更していない。
 
 ## メロディの重力（中）
 

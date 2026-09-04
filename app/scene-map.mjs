@@ -3,19 +3,19 @@ import {
   answerDegree,
   applyMelodySetting,
   chordDegreeNotes,
-  chordMidiNotes,
+  chordMidiNotesFromRoot,
   chordToneWeight,
   chooseChord,
   decayTension,
-  getWorld,
   getScale,
   hashSeed,
   isResolution,
-  midiForDegree,
+  midiForDegreeFromRoot,
   noteMemory,
   mulberry32,
   noteLengthFromInterval,
   quantize as quantizeTime,
+  resolveRootMidi,
   resolveScaleId,
   roleForDegree,
   sectionForBar,
@@ -146,17 +146,19 @@ export function sceneToEvents(scene, {
   seed,
   bpm,
   bars,
+  keyChoice,
   melody = "gravity",
   quantize,
 } = {}) {
   validateScene(scene);
-  const world = getWorld(worldId);
   const scaleId = resolveScaleId(worldId, requestedScaleId);
   if (!(Number.isFinite(bpm) && bpm > 0)) throw new TypeError("bpm が正の数値ではありません");
   if (!(Number.isInteger(bars) && bars > 0)) throw new TypeError("bars が正の整数ではありません");
   if (melody !== "gravity" && melody !== "off") throw new TypeError("melody が gravity または off ではありません");
 
   const normalizedSeed = hashSeed(seed);
+  const rootMidi = resolveRootMidi(worldId, keyChoice, normalizedSeed);
+  const key = rootMidi % 12;
   const quantizeSetting = normalizedQuantize(quantize);
   const assignments = assignDegrees(sceneProps(scene), normalizedSeed, scaleId);
   const flights = new Map(flightTimes(scene).map((entry) => [entry.catchId, entry.flightSec]));
@@ -208,7 +210,7 @@ export function sceneToEvents(scene, {
     const degree = assignments[source.propId];
     if (!degree) throw new TypeError(`propId ${source.propId} に度数を割り当てられません`);
     const octave = source.handJoint === "wrist.L" ? -1 : 0;
-    const keyMidi = midiForDegree(worldId, scaleId, degree, octave);
+    const keyMidi = midiForDegreeFromRoot(rootMidi, scaleId, degree, octave);
     const role = roleForDegree(scaleId, degree);
     const common = {
       time,
@@ -301,7 +303,7 @@ export function sceneToEvents(scene, {
         tension = decayTension(tension, beat - lastTensionBeat);
         lastTensionBeat = beat;
         currentChord = resolving || barIndex === 0 ? tonicChordForScale(scaleId) : nextChord;
-        const pitchClasses = chordMidiNotes(worldId, scaleId, currentChord).map((midi) => midi % 12);
+        const pitchClasses = chordMidiNotesFromRoot(rootMidi, scaleId, currentChord).map((midi) => midi % 12);
         padVoices = voiceLead(padVoices, pitchClasses);
         chordHistory.push(currentChord);
       }
@@ -321,7 +323,7 @@ export function sceneToEvents(scene, {
         beat,
         kind: "answer",
         code: null,
-        midi: midiForDegree(worldId, scaleId, degree, 0),
+        midi: midiForDegreeFromRoot(rootMidi, scaleId, degree, 0),
         degree,
         role: roleForDegree(scaleId, degree),
         effect: "none",
@@ -362,7 +364,7 @@ export function sceneToEvents(scene, {
       previousChord: currentChord,
       repeatCount,
       previousVoices: padVoices,
-      tonicPitchClass: world.rootMidi % 12,
+      tonicPitchClass: rootMidi % 12,
       resolution,
     });
   };
@@ -390,6 +392,8 @@ export function sceneToEvents(scene, {
     worldId,
     scaleId,
     seed: normalizedSeed,
+    rootMidi,
+    key,
     bpm,
     bars,
     melody,
