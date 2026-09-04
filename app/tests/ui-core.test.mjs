@@ -155,16 +155,34 @@ test("validateTakeLog accepts SFX without note fields and rejects missing SFX fi
   assert.match(validateTakeLog(missingVariant).reason, /必須項目/);
 });
 
-test("validateTakeLog accepts optional timbre and held fields with their required types", () => {
+test("validateTakeLog accepts optional timbre, held, and melodic-gravity fields with their required types", () => {
   const log = validTakeLog();
-  Object.assign(log.events[0], { timbre: "epiano", held: true });
+  log.melody = "gravity";
+  Object.assign(log.events[0], {
+    timbre: "epiano",
+    held: true,
+    keyDegree: 4,
+    keyMidi: 65,
+    bent: true,
+    rule: "tritone",
+  });
   assert.deepEqual(validateTakeLog(log), { ok: true });
+  assert.match(validateTakeLog({ ...log, melody: "strong" }).reason, /melody/);
   const invalidTimbre = structuredClone(log);
   invalidTimbre.events[0].timbre = 3;
   assert.match(validateTakeLog(invalidTimbre).reason, /項目型/);
   const invalidHeld = structuredClone(log);
   invalidHeld.events[0].held = "yes";
   assert.match(validateTakeLog(invalidHeld).reason, /項目型/);
+  const invalidKeyMidi = structuredClone(log);
+  invalidKeyMidi.events[0].keyMidi = "65";
+  assert.match(validateTakeLog(invalidKeyMidi).reason, /項目型/);
+  const invalidBent = structuredClone(log);
+  invalidBent.events[0].bent = "yes";
+  assert.match(validateTakeLog(invalidBent).reason, /項目型/);
+  const invalidRule = structuredClone(log);
+  invalidRule.events[0].rule = "smooth";
+  assert.match(validateTakeLog(invalidRule).reason, /項目型/);
 });
 
 test("pressTracker retains the maximum after keys are released", () => {
@@ -179,11 +197,20 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.12.0 waiting screen includes timbre controls, the performance tip, SFX legend, and cadence engine", async () => {
+test("v0.13.0 waiting screen includes melodic gravity, timbre controls, the performance tip, SFX legend, and cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../style.css", import.meta.url), "utf8");
-  assert.match(html, /random-scale-keys v0\.12\.0/);
+  assert.match(html, /<title>random-scale-keys v0\.13\.0<\/title>/);
+  assert.match(html, /<p class="version">random-scale-keys v0\.13\.0<\/p>/);
+  assert.match(html, /id="melody"/);
+  assert.match(html, /<option value="on" selected>ON<\/option>/);
+  assert.match(main, /melody: selectedMelody\(\)/);
+  assert.match(main, /applyMelodySetting\(takeLog\.melody/);
+  assert.match(main, /updateTension\(tension, deltaBeats, playedRole, layout\.scaleId\)/);
+  assert.match(main, /previousMelodyNote = \{ degree: played\.degree, midi: played\.midi \}/);
+  assert.match(main, /melody: log\.melody === "off" \? "off" : "gravity"/);
+  assert.match(main, /elements\.answer\.textContent = `→ \$\{degree\}`/);
   assert.match(html, /id="timbre"/);
   assert.match(html, /id="timbre-shift"/);
   assert.match(main, /LEAD_TIMBRES\.map/);

@@ -1,6 +1,7 @@
 import {
   accentForBeat,
   answerDegree,
+  applyMelodySetting,
   chordDegreeNotes,
   chordMidiNotes,
   chordToneWeight,
@@ -139,12 +140,21 @@ function sceneProps(scene) {
   return [...new Set(ids)];
 }
 
-export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed, bpm, bars, quantize } = {}) {
+export function sceneToEvents(scene, {
+  worldId,
+  scaleId: requestedScaleId,
+  seed,
+  bpm,
+  bars,
+  melody = "gravity",
+  quantize,
+} = {}) {
   validateScene(scene);
   const world = getWorld(worldId);
   const scaleId = resolveScaleId(worldId, requestedScaleId);
   if (!(Number.isFinite(bpm) && bpm > 0)) throw new TypeError("bpm が正の数値ではありません");
   if (!(Number.isInteger(bars) && bars > 0)) throw new TypeError("bars が正の整数ではありません");
+  if (melody !== "gravity" && melody !== "off") throw new TypeError("melody が gravity または off ではありません");
 
   const normalizedSeed = hashSeed(seed);
   const quantizeSetting = normalizedQuantize(quantize);
@@ -181,6 +191,8 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
   let lastPressBeat = 0;
   let lastRawCatchTime = -Infinity;
   let lastPressEvent;
+  let previousMelodyNote;
+  let beforePreviousMelodyNote;
   let currentChord = tonicChordForScale(scaleId);
   let nextChord = currentChord;
   let padVoices;
@@ -196,12 +208,13 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
     const degree = assignments[source.propId];
     if (!degree) throw new TypeError(`propId ${source.propId} に度数を割り当てられません`);
     const octave = source.handJoint === "wrist.L" ? -1 : 0;
+    const keyMidi = midiForDegree(worldId, scaleId, degree, octave);
     const role = roleForDegree(scaleId, degree);
     const common = {
       time,
       beat,
       code: null,
-      midi: midiForDegree(worldId, scaleId, degree, octave),
+      midi: keyMidi,
       degree,
       role,
       effect: "none",
@@ -229,19 +242,30 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
 
     const flightSec = flights.get(source.id);
     if (!(flightSec > 0)) throw new TypeError(`catch ${source.id} に対応する release がありません`);
+    const played = applyMelodySetting(melody, {
+      previous: previousMelodyNote ?? null,
+      beforePrevious: beforePreviousMelodyNote ?? null,
+    }, { degree, octave, midi: keyMidi }, scaleId);
+    const playedRole = roleForDegree(scaleId, played.degree);
     const interval = rawTime - lastRawCatchTime;
     const deltaBeats = Math.max(0, beat - lastTensionBeat);
     const previousTension = decayTension(tension, deltaBeats);
-    const nextTension = updateTension(tension, deltaBeats, role, scaleId);
-    const resolution = isResolution(previousTension, nextTension, role);
+    const nextTension = updateTension(tension, deltaBeats, playedRole, scaleId);
+    const resolution = isResolution(previousTension, nextTension, playedRole);
     const accent = accentForBeat(beat % BEATS_PER_BAR);
-    const chordWeight = chordToneWeight(chordDegreeNotes(scaleId, currentChord), degree);
+    const chordWeight = chordToneWeight(chordDegreeNotes(scaleId, currentChord), played.degree);
     const silenceBeforePress = beat - lastPressBeat;
     const returnGain = silenceBeforePress >= 4 ? 1.2 : 1;
     const returnLength = silenceBeforePress >= 4 ? 1.5 : 1;
     const loggedEvent = {
       ...common,
+      midi: played.midi,
+      degree: played.degree,
+      role: playedRole,
       kind: "press",
+      keyDegree: degree,
+      keyMidi,
+      ...(played.bent ? { bent: true, rule: played.rule } : {}),
       velocity: velocityFromInterval(interval) * accent.gain * chordWeight.gain * returnGain,
       length: noteLengthFromInterval(flightSec) * accent.length * chordWeight.length * returnLength,
       tBefore: previousTension,
@@ -250,6 +274,8 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
       flightSec,
     };
     addEvent(loggedEvent);
+    beforePreviousMelodyNote = previousMelodyNote;
+    previousMelodyNote = { degree: played.degree, midi: played.midi };
     tension = nextTension;
     lastTensionBeat = beat;
     lastPressBeat = beat;
@@ -366,6 +392,7 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
     seed: normalizedSeed,
     bpm,
     bars,
+    melody,
     quantize: quantizeSetting,
     events: sortedEvents,
     motionScene: {

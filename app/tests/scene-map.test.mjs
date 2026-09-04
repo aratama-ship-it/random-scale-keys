@@ -57,10 +57,40 @@ test("sceneToEvents maps catches to presses, preserves releases only as log even
   const degrees = assignDegrees(fixture.props.map((prop) => prop.id), 123, "ionian");
   const right = presses.find((event) => event.propId === "ball.B" && event.sceneTime === 0.3);
   const left = presses.find((event) => event.propId === "ball.A" && event.sceneTime === 0.6);
+  const tritone = presses.find((event) => event.propId === "ball.C" && event.sceneTime === 0.9);
   assert.equal(right.midi, midiForDegree("daylight", "ionian", degrees["ball.B"], 0));
-  assert.equal(left.midi, midiForDegree("daylight", "ionian", degrees["ball.A"], -1));
+  assert.equal(right.keyMidi, right.midi);
+  assert.equal(left.keyMidi, midiForDegree("daylight", "ionian", degrees["ball.A"], -1));
+  assert.equal(left.midi, 65);
+  assert.equal(left.bent, true);
+  assert.equal(left.rule, "fold");
+  assert.equal(tritone.keyDegree, 7);
+  assert.equal(tritone.degree, 6);
+  assert.equal(tritone.role, "floating");
+  assert.equal(tritone.rule, "tritone");
+  presses.forEach((event) => {
+    assert.equal(Number.isInteger(event.keyDegree), true);
+    assert.equal(Number.isFinite(event.keyMidi), true);
+  });
   assert.equal(log.scaleId, "ionian");
+  assert.equal(log.melody, "gravity");
   assert.equal(log.engine, "accomp-v4");
+});
+
+test("sceneToEvents records melody off and leaves every assigned press unchanged", () => {
+  const log = sceneToEvents(fixture, {
+    worldId: "daylight",
+    scaleId: "ionian",
+    seed: 123,
+    bpm: 100,
+    bars: 1,
+    melody: "off",
+    quantize: { enabled: false, division: null },
+  });
+  const presses = log.events.filter((event) => event.kind === "press");
+  assert.equal(log.melody, "off");
+  assert.ok(presses.every((event) => event.degree === event.keyDegree && event.midi === event.keyMidi));
+  assert.ok(presses.every((event) => event.bent === undefined && event.rule === undefined));
 });
 
 test("sceneToEvents loops to the take boundary without exceeding it", () => {

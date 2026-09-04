@@ -274,6 +274,115 @@ export function midiForDegree(worldId, scaleId, degree, octave = 0) {
   return world.rootMidi + scale.intervals[degree - 1] + octave * 12;
 }
 
+function validateMelodyNote(note, scale, name, requireOctave = false) {
+  if (!note || typeof note !== "object" || !Number.isFinite(note.midi)) {
+    throw new TypeError(`${name} must contain a finite midi value`);
+  }
+  if (!Number.isInteger(note.degree) || note.degree < 1 || note.degree > scale.intervals.length) {
+    throw new RangeError(`Invalid ${name} scale degree: ${note.degree}`);
+  }
+  if (requireOctave && !Number.isInteger(note.octave)) {
+    throw new TypeError(`${name} must contain an integer octave`);
+  }
+}
+
+function scaleStep(note, direction, scale, rootMidi) {
+  const count = scale.intervals.length;
+  let degree = note.degree + direction;
+  let octave = Number.isInteger(note.octave)
+    ? note.octave
+    : Math.round((note.midi - rootMidi - scale.intervals[note.degree - 1]) / 12);
+  if (degree > count) {
+    degree = 1;
+    octave += 1;
+  } else if (degree < 1) {
+    degree = count;
+    octave -= 1;
+  }
+  return {
+    degree,
+    octave,
+    midi: rootMidi + scale.intervals[degree - 1] + octave * 12,
+  };
+}
+
+export function melodicGravity(context, pressed, scaleId) {
+  const scale = getScale(scaleId);
+  validateMelodyNote(pressed, scale, "pressed", true);
+  const unchanged = {
+    degree: pressed.degree,
+    octave: pressed.octave,
+    midi: pressed.midi,
+    bent: false,
+    rule: null,
+  };
+  const previous = context?.previous ?? null;
+  if (!previous) return unchanged;
+  validateMelodyNote(previous, scale, "previous");
+  const beforePrevious = context?.beforePrevious ?? null;
+  if (beforePrevious) validateMelodyNote(beforePrevious, scale, "beforePrevious");
+
+  const rootMidi = pressed.midi - scale.intervals[pressed.degree - 1] - pressed.octave * 12;
+  // ルール1（オクターブ折返し）は前処理。折り返した音に対してルール2〜4を判定する（2026-09-04 Claude 修正:
+  // 折返しで確定すると折返し後の三全音が残った。合成ログで ionian 10→5 件が残存）
+  let folded = null;
+  if (Math.abs(pressed.midi - previous.midi) > 12) {
+    const octaveShift = pressed.midi - previous.midi > 0 ? -1 : 1;
+    folded = {
+      degree: pressed.degree,
+      octave: pressed.octave + octaveShift,
+      midi: pressed.midi + octaveShift * 12,
+      bent: true,
+      rule: "fold",
+    };
+    pressed = { degree: folded.degree, octave: folded.octave, midi: folded.midi };
+  }
+  const pressedDelta = pressed.midi - previous.midi;
+
+  if (Math.abs(pressedDelta) === 6) {
+    let result = scaleStep(pressed, -1, scale, rootMidi);
+    if (Math.abs(result.midi - previous.midi) === 6) {
+      result = scaleStep(pressed, 1, scale, rootMidi);
+    }
+    return { ...result, bent: true, rule: "tritone" };
+  }
+
+  const previousInterval = scale.intervals[previous.degree - 1];
+  if (previousInterval === 11 && Math.abs(pressedDelta) >= 6 && pressed.degree !== 1) {
+    const midi = previous.midi + 1;
+    return {
+      degree: 1,
+      octave: Math.round((midi - rootMidi) / 12),
+      midi,
+      bent: true,
+      rule: "leading",
+    };
+  }
+
+  if (beforePrevious) {
+    const leapDelta = previous.midi - beforePrevious.midi;
+    if (Math.abs(leapDelta) >= 7 && pressedDelta * Math.sign(leapDelta) >= 3) {
+      const result = scaleStep(previous, -Math.sign(leapDelta), scale, rootMidi);
+      return { ...result, bent: true, rule: "recover" };
+    }
+  }
+
+  return folded ?? unchanged;
+}
+
+export function applyMelodySetting(melody, context, pressed, scaleId) {
+  if (melody === "gravity") return melodicGravity(context, pressed, scaleId);
+  if (melody !== "off") throw new RangeError(`Unknown melody setting: ${melody}`);
+  getScale(scaleId);
+  return {
+    degree: pressed.degree,
+    octave: pressed.octave,
+    midi: pressed.midi,
+    bent: false,
+    rule: null,
+  };
+}
+
 export function arpeggioOffsets(scaleId, degree) {
   const scale = getScale(scaleId);
   const count = scale.intervals.length;

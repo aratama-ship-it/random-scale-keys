@@ -79,6 +79,22 @@ test("scheduleRecordedTake sends press and answer notes through the shared lead 
   assert.deepEqual(synth.calls.lead.map(([event]) => event.kind), ["press", "answer"]);
 });
 
+test("scheduleRecordedTake renders a bent press from its logged midi without reapplying gravity", () => {
+  const log = sampleLog();
+  Object.assign(log.events[0], {
+    midi: 64,
+    degree: 3,
+    keyMidi: 65,
+    keyDegree: 4,
+    bent: true,
+    rule: "tritone",
+  });
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
+  assert.equal(synth.calls.lead[0][0], log.events[0]);
+  assert.equal(synth.calls.lead[0][0].midi, 64);
+});
+
 test("scheduleRecordedTake forwards an event timbre and leaves legacy events undefined", () => {
   const log = sampleLog();
   log.events[0].timbre = "bell";

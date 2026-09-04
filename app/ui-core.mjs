@@ -155,6 +155,7 @@ export function validateTakeLog(value) {
   if (typeof value.seed !== "number" || !Number.isFinite(value.seed)) return { ok: false, reason: "seed が数値ではありません" };
   if (typeof value.bpm !== "number" || !Number.isFinite(value.bpm) || value.bpm <= 0) return { ok: false, reason: "bpm が正の数値ではありません" };
   if (!Number.isInteger(value.bars) || value.bars <= 0) return { ok: false, reason: "bars が正の整数ではありません" };
+  if (value.melody !== undefined && value.melody !== "gravity" && value.melody !== "off") return { ok: false, reason: "melody が gravity または off ではありません" };
   if (!value.quantize || typeof value.quantize !== "object" || Array.isArray(value.quantize)) return { ok: false, reason: "quantize オブジェクトがありません" };
   if (!Array.isArray(value.events)) return { ok: false, reason: "events 配列がありません" };
   const requiredFor = (event) => event?.kind === "sfx"
@@ -174,6 +175,10 @@ export function validateTakeLog(value) {
         || typeof event.role !== "string"
         || (event.timbre !== undefined && typeof event.timbre !== "string")
         || (event.held !== undefined && typeof event.held !== "boolean")
+        || (event.keyDegree !== undefined && (!Number.isInteger(event.keyDegree) || event.keyDegree < 1))
+        || (event.keyMidi !== undefined && (typeof event.keyMidi !== "number" || !Number.isFinite(event.keyMidi)))
+        || (event.bent !== undefined && typeof event.bent !== "boolean")
+        || (event.rule !== undefined && !["fold", "tritone", "leading", "recover"].includes(event.rule))
   ));
   if (invalidTypeIndex !== -1) return { ok: false, reason: `events[${invalidTypeIndex}] の項目型が正しくありません` };
   return { ok: true };

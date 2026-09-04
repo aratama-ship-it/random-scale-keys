@@ -1,6 +1,7 @@
 import {
   accentForBeat,
   answerDegree,
+  applyMelodySetting,
   automaticSfxForStep,
   approachDegree,
   chordDegreeNotes,
@@ -91,6 +92,7 @@ const elements = {
   exportStatus: document.querySelector("#export-status"),
   json: document.querySelector("#json"),
   keyboard: document.querySelector("#keyboard"),
+  melody: document.querySelector("#melody"),
   primary: document.querySelector("#primary-action"),
   performanceTip: document.querySelector("#performance-tip"),
   quantize: document.querySelector("#quantize"),
@@ -152,6 +154,8 @@ let chordHistory = [];
 let pendingResolutionBeat = Infinity;
 let resolutionReverbUntilBeat = -Infinity;
 let lastPressEvent;
+let previousMelodyNote;
+let beforePreviousMelodyNote;
 let answerCount = 0;
 let takeLog;
 let loadedTakeFilename = "";
@@ -181,6 +185,10 @@ function selectedQuantize() {
 
 function selectedTimbres() {
   return { main: elements.timbre.value, shift: elements.timbreShift.value };
+}
+
+function selectedMelody() {
+  return elements.melody.value === "off" ? "off" : "gravity";
 }
 
 function populateTimbreSelects() {
@@ -342,7 +350,7 @@ function renderState() {
   elements.performanceTip.hidden = state !== "idle";
   document.body.dataset.state = state;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
-  [elements.world, elements.scale, elements.quantize, elements.timbre, elements.timbreShift, elements.seed, elements.reroll]
+  [elements.world, elements.scale, elements.melody, elements.quantize, elements.timbre, elements.timbreShift, elements.seed, elements.reroll]
     .forEach((control) => { control.disabled = nextTakeSettingsDisabledForState(state); });
   elements.diagnose.disabled = diagnosticDisabledForState(state);
   elements.primary.disabled = (state === "idle" || state === "finished") && narrowScreen.matches;
@@ -386,6 +394,12 @@ function showAnswer(degree) {
   clearTimeout(answerTimer);
   elements.answer.textContent = `応答: 度数${degree}`;
   terrain.answer();
+  answerTimer = setTimeout(() => { elements.answer.textContent = ""; }, PERFORMANCE.answerVisibleMs);
+}
+
+function showBentDegree(degree) {
+  clearTimeout(answerTimer);
+  elements.answer.textContent = `→ ${degree}`;
   answerTimer = setTimeout(() => { elements.answer.textContent = ""; }, PERFORMANCE.answerVisibleMs);
 }
 
@@ -622,6 +636,8 @@ async function beginTake(eventType) {
   lastPhysicalPressTime = -Infinity;
   lastPhysicalSfxPressTime = -Infinity;
   lastPressEvent = undefined;
+  previousMelodyNote = undefined;
+  beforePreviousMelodyNote = undefined;
   answerCount = 0;
   currentChord = tonicChordForScale(layout.scaleId);
   nextChord = currentChord;
@@ -638,6 +654,7 @@ async function beginTake(eventType) {
     seed: layout.seed,
     bpm: world.bpm,
     bars: PERFORMANCE.bars,
+    melody: selectedMelody(),
     quantize: selectedQuantize(),
     timbres: selectedTimbres(),
     events: [],
@@ -701,6 +718,7 @@ function scheduleReplayVisuals() {
         return;
       }
       if (event.kind !== "press") return;
+      if (event.bent) showBentDegree(event.degree);
       const code = codeForReplayEvent(event);
       const rect = code ? keyRects.get(code) : undefined;
       if (rect) terrain.press(rect, event.role);
@@ -772,6 +790,22 @@ function playCode(code, sourceId = "keyboard", timbre = elements.timbre.value) {
   if (audioContext.currentTime < takeStart || audioContext.currentTime >= takeEnd) return;
   if (activeHolds.has(code)) return;
   const assignment = layout.keys[code];
+  const played = applyMelodySetting(takeLog.melody, {
+    previous: previousMelodyNote ?? null,
+    beforePrevious: beforePreviousMelodyNote ?? null,
+  }, {
+    degree: assignment.degree,
+    octave: assignment.octave,
+    midi: assignment.midi,
+  }, layout.scaleId);
+  const playedRole = roleForDegree(layout.scaleId, played.degree);
+  const playedAssignment = {
+    ...assignment,
+    degree: played.degree,
+    octave: played.octave,
+    midi: played.midi,
+    role: playedRole,
+  };
   const now = audioContext.currentTime;
   const scheduledTime = takeLog.quantize.enabled
     ? quantize(now, takeStart, synth.bpm, takeLog.quantize.division, 0.03)
@@ -781,15 +815,15 @@ function playCode(code, sourceId = "keyboard", timbre = elements.timbre.value) {
   const silenceBeforePress = beat - lastPressBeat;
   const section = sectionForBar(Math.floor(beat / PERFORMANCE.beatsPerBar));
   const accent = accentForBeat(beat % PERFORMANCE.beatsPerBar);
-  const chordWeight = chordToneWeight(chordDegreeNotes(layout.scaleId, currentChord), assignment.degree);
+  const chordWeight = chordToneWeight(chordDegreeNotes(layout.scaleId, currentChord), played.degree);
   const returnGain = silenceBeforePress >= 4 ? 1.2 : 1;
   const returnLength = silenceBeforePress >= 4 ? 1.5 : 1;
   const velocity = velocityFromInterval(interval) * accent.gain * chordWeight.gain * returnGain;
   const length = noteLengthFromInterval(interval) * accent.length * chordWeight.length * returnLength;
   const deltaBeats = Math.max(0, beat - lastTensionBeat);
   const previousTension = decayTension(tension, deltaBeats);
-  const nextTension = updateTension(tension, deltaBeats, assignment.role, layout.scaleId);
-  const resolution = isResolution(previousTension, nextTension, assignment.role);
+  const nextTension = updateTension(tension, deltaBeats, playedRole, layout.scaleId);
+  const resolution = isResolution(previousTension, nextTension, playedRole);
 
   tension = nextTension;
   lastTensionBeat = beat;
@@ -802,10 +836,13 @@ function playCode(code, sourceId = "keyboard", timbre = elements.timbre.value) {
     beat,
     kind: "press",
     code,
-    midi: assignment.midi,
-    degree: assignment.degree,
-    role: assignment.role,
+    midi: played.midi,
+    degree: played.degree,
+    role: playedRole,
     effect: assignment.effect,
+    keyDegree: assignment.degree,
+    keyMidi: assignment.midi,
+    ...(played.bent ? { bent: true, rule: played.rule } : {}),
     velocity,
     length,
     tBefore: previousTension,
@@ -815,16 +852,19 @@ function playCode(code, sourceId = "keyboard", timbre = elements.timbre.value) {
     section,
     timbre,
   };
-  const handle = synth.scheduleLead(assignment, scheduledTime, length, velocity, assignment.effect, nextTension, {
+  const handle = synth.scheduleLead(playedAssignment, scheduledTime, length, velocity, assignment.effect, nextTension, {
     cutoffMinimum: section === "b" ? 1800 : 1200,
     timbre,
     hold: "open",
   });
   takeLog.events.push(loggedEvent);
+  beforePreviousMelodyNote = previousMelodyNote;
+  previousMelodyNote = { degree: played.degree, midi: played.midi };
   if (handle) activeHolds.set(code, { handle, when: scheduledTime, length, event: loggedEvent });
   lastPressEvent = loggedEvent;
   const key = elements.keyboard.querySelector(`[data-code="${code}"]`);
-  if (key) terrain.press(key.getBoundingClientRect(), assignment.role);
+  if (key) terrain.press(key.getBoundingClientRect(), playedRole);
+  if (played.bent) showBentDegree(played.degree);
   setKeyPressed(code, true);
   setTimeout(() => setKeyPressed(code, false), cssDurationMs("--duration-press"));
 }
@@ -985,6 +1025,7 @@ function normalizeLoadedLog(log) {
   return {
     ...log,
     engine: "accomp-v4",
+    melody: log.melody === "off" ? "off" : "gravity",
     scaleId: resolveScaleId(log.worldId, log.scaleId),
     timbres,
     events: log.events.map((event) => {
@@ -1036,6 +1077,7 @@ function loadMotionScene(scene, filename = "") {
     seed,
     bpm: world.bpm,
     bars: PERFORMANCE.bars,
+    melody: selectedMelody(),
     quantize: selectedQuantize(),
   });
   takeLog.timbres = selectedTimbres();
@@ -1079,6 +1121,7 @@ async function loadTakeFile(file) {
       elements.scale.value = takeLog.scaleId;
       elements.timbre.value = takeLog.timbres.main;
       elements.timbreShift.value = takeLog.timbres.shift;
+      elements.melody.value = takeLog.melody === "off" ? "off" : "on";
       elements.seed.value = String(takeLog.seed);
       const quantizeValue = takeLog.quantize.enabled
         ? ({ 1: "4", 2: "8", 4: "16" }[takeLog.quantize.division] ?? "off")

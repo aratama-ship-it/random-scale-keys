@@ -7,6 +7,7 @@ import {
   TIMBRE_LABELS,
   accentForBeat,
   allocateKeys,
+  applyMelodySetting,
   answerDegree,
   arpeggioOffsets,
   approachDegree,
@@ -31,6 +32,7 @@ import {
   getScale,
   harmonyScaleId,
   isResolution,
+  melodicGravity,
   noteMemory,
   noteLengthFromInterval,
   phraseRole,
@@ -43,6 +45,74 @@ import {
   velocityFromInterval,
   voiceLead,
 } from "../gravity.mjs";
+
+const melodyNote = (degree, octave, midi) => ({ degree, octave, midi });
+
+test("melodicGravity removes ionian tritones in both directions", () => {
+  assert.deepEqual(
+    melodicGravity({ previous: { degree: 7, midi: 71 }, beforePrevious: null }, melodyNote(4, 0, 65), "ionian"),
+    { degree: 3, octave: 0, midi: 64, bent: true, rule: "tritone" },
+  );
+  assert.deepEqual(
+    melodicGravity({ previous: { degree: 4, midi: 65 }, beforePrevious: null }, melodyNote(7, 0, 71), "ionian"),
+    { degree: 6, octave: 0, midi: 69, bent: true, rule: "tritone" },
+  );
+});
+
+test("melodicGravity resolves a leading tone only for a distant non-tonic target", () => {
+  const context = { previous: { degree: 7, midi: 71 }, beforePrevious: null };
+  assert.deepEqual(melodicGravity(context, melodyNote(2, 0, 62), "ionian"), {
+    degree: 1, octave: 1, midi: 72, bent: true, rule: "leading",
+  });
+  assert.deepEqual(melodicGravity(context, melodyNote(1, 0, 60), "ionian"), {
+    degree: 1, octave: 0, midi: 60, bent: false, rule: null,
+  });
+  assert.deepEqual(melodicGravity(context, melodyNote(5, 0, 67), "ionian"), {
+    degree: 5, octave: 0, midi: 67, bent: false, rule: null,
+  });
+});
+
+test("melodicGravity recovers by one scale step after a continued large leap", () => {
+  const context = {
+    beforePrevious: { degree: 1, midi: 60 },
+    previous: { degree: 5, midi: 67 },
+  };
+  assert.deepEqual(melodicGravity(context, melodyNote(7, 0, 71), "ionian"), {
+    degree: 4, octave: 0, midi: 65, bent: true, rule: "recover",
+  });
+  assert.deepEqual(melodicGravity(context, melodyNote(6, 0, 69), "ionian"), {
+    degree: 6, octave: 0, midi: 69, bent: false, rule: null,
+  });
+});
+
+test("melodicGravity folds one octave before considering later rules", () => {
+  assert.deepEqual(
+    melodicGravity({ previous: { degree: 1, midi: 60 }, beforePrevious: null }, melodyNote(3, 1, 76), "ionian"),
+    { degree: 3, octave: 0, midi: 64, bent: true, rule: "fold" },
+  );
+  assert.deepEqual(
+    melodicGravity({ previous: { degree: 1, midi: 60 }, beforePrevious: null }, melodyNote(1, 1, 72), "ionian"),
+    { degree: 1, octave: 1, midi: 72, bent: false, rule: null },
+  );
+});
+
+test("melodicGravity preserves the first note and does not invent a mixolydian leading tone", () => {
+  assert.deepEqual(melodicGravity({ previous: null, beforePrevious: null }, melodyNote(4, 0, 65), "ionian"), {
+    degree: 4, octave: 0, midi: 65, bent: false, rule: null,
+  });
+  assert.deepEqual(
+    melodicGravity({ previous: { degree: 7, midi: 70 }, beforePrevious: null }, melodyNote(2, 0, 62), "mixolydian"),
+    { degree: 2, octave: 0, midi: 62, bent: false, rule: null },
+  );
+});
+
+test("applyMelodySetting leaves a tritone unchanged when melody is off", () => {
+  const pressed = melodyNote(4, 0, 65);
+  assert.deepEqual(
+    applyMelodySetting("off", { previous: { degree: 7, midi: 71 }, beforePrevious: null }, pressed, "ionian"),
+    { ...pressed, bent: false, rule: null },
+  );
+});
 
 test("lead timbres expose four labels and world-specific defaults", () => {
   assert.deepEqual(LEAD_TIMBRES, ["epiano", "saw", "pluck", "bell"]);
