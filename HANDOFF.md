@@ -9,7 +9,7 @@
 
 1. `apps/music-plugins/random-scale-keys/PROJECT_NOTES.md`（決定事項と検証ログの正本。末尾から遡ると速い）
 2. `apps/music-plugins/random-scale-keys/README.md`（起動方法・公開URL・トークンシート外の値）
-3. `apps/music-plugins/random-scale-keys/SPEC_M7.md`（直近の仕様。M1〜M6も同フォルダ）
+3. `apps/music-plugins/random-scale-keys/SPEC_M8.md`（直近の仕様。M1〜M7も同フォルダ）
 
 ### これは何か
 
@@ -20,9 +20,9 @@ PCキーボードのA〜Zにスケール音とエフェクトをランダムに�
 
 ### いまの状態（2026-09-04）
 
-- **app v0.8.0 を公開中**: https://aratama-ship-it.github.io/random-scale-keys/
+- **app v0.9.0 を公開中**（M8: 五音音階は親7音階の三和音、4小節ごとに属→主で着く終止）: https://aratama-ship-it.github.io/random-scale-keys/
 - repo: https://github.com/aratama-ship-it/random-scale-keys （public、Pages=main/root）
-- M1〜M7 まで完了。M7（伴奏の作り直し）を公開した直後で、**本人の試聴判定を待っている**状態
+- M1〜M8 まで完了。M8（親音階ハーモニー＋4小節の終止）を公開した直後で、**本人の試聴判定を待っている**状態
 
 ### 直近の宿題（ここから始める）
 

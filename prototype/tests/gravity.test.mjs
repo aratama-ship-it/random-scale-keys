@@ -17,6 +17,7 @@ import {
   chordMidiNotes,
   chordRootInterval,
   chordRootMidi,
+  chordSeventhInterval,
   chordForTension,
   chordToneWeight,
   chooseChord,
@@ -27,6 +28,7 @@ import {
   isResolution,
   noteMemory,
   noteLengthFromInterval,
+  phraseRole,
   quantize,
   reverbSendFromSilence,
   sectionForBar,
@@ -163,11 +165,23 @@ test("chord degrees, labels, and section skeletons reproduce ionian and aeolian"
   const skeleton = (scaleId, section) => [0, 1, 2, 3].map((sectionBar) => chooseChord({
     scaleId, section, sectionBar, tension: 0.4, memory: {},
   }));
-  assert.deepEqual(skeleton("ionian", "intro"), ["I", "I", "I", "IV"]);
+  assert.deepEqual(skeleton("ionian", "intro"), ["I", "I", "IV", "V"]);
   assert.deepEqual(skeleton("ionian", "a"), ["I", "I", "IV", "V"]);
-  assert.deepEqual(skeleton("ionian", "b"), ["vi", "IV", "I", "V"]);
-  assert.deepEqual(skeleton("ionian", "outro"), ["IV", "I", "V", "I"]);
-  assert.deepEqual(skeleton("aeolian", "b"), ["VI", "iv", "i", "VII"]);
+  assert.deepEqual(skeleton("ionian", "b"), ["I", "vi", "IV", "V"]);
+  assert.deepEqual(skeleton("ionian", "outro"), ["I", "IV", "V", "I"]);
+  assert.deepEqual(skeleton("aeolian", "b"), ["i", "VI", "iv", "VII"]);
+});
+
+test("phraseRole identifies cadence, arrival, and free positions in skeleton v2", () => {
+  ["intro", "a", "b"].forEach((section) => {
+    assert.equal(phraseRole(section, 3), "cadence", section);
+    assert.equal(phraseRole(section, 0), "arrival", section);
+  });
+  assert.equal(phraseRole("outro", 2), "cadence");
+  assert.equal(phraseRole("outro", 0), "arrival");
+  assert.equal(phraseRole("outro", 3), "arrival");
+  assert.equal(phraseRole("a", 1), "free");
+  assert.equal(phraseRole("outro-last", 3), "arrival");
 });
 
 test("harmonyScaleId maps the eight parent scales and leaves other scales unchanged", () => {
@@ -220,8 +234,13 @@ test("parent-harmony roots and approach tones use harmony-scale semitones", () =
   assert.equal(approachDegree(0, getScale("ionian")), 11);
 });
 
+test("chordSeventhInterval returns the harmony-scale seventh above the chord root", () => {
+  assert.equal(chordSeventhInterval("ionian", "V"), 5);
+  assert.equal(chordSeventhInterval("aeolian", "VII"), 8);
+});
+
 test("major pentatonic chord scoring compares lead and chord pitch classes", () => {
-  const ctx = { scaleId: "major_pentatonic", section: "b", sectionBar: 0, tension: 0.4, memory: { 5: 1 } };
+  const ctx = { scaleId: "major_pentatonic", section: "b", sectionBar: 1, tension: 0.4, memory: { 5: 1 } };
   assert.ok(scoreChord(6, ctx) > scoreChord(4, ctx));
   assert.ok(scoreChord(6, ctx) > scoreChord(5, ctx));
 });
@@ -328,7 +347,7 @@ test("scoreChord combines note fit with the section function bias", () => {
 });
 
 test("chooseChord follows memory over the skeleton when played notes strongly agree", () => {
-  const base = { scaleId: "ionian", section: "a", sectionBar: 0, tension: 0.4 };
+  const base = { scaleId: "ionian", section: "a", sectionBar: 1, tension: 0.4 };
   assert.equal(chooseChord({ ...base, memory: {} }), "I");
   assert.equal(chooseChord({ ...base, memory: { 1: 1, 3: 1, 5: 1 } }), "I");
   assert.equal(chooseChord({ ...base, memory: { 1: 2, 4: 2, 6: 2 } }), "IV");
@@ -336,7 +355,7 @@ test("chooseChord follows memory over the skeleton when played notes strongly ag
 
 test("chooseChord repeat penalty breaks a constructed tie after two bars", () => {
   const ctx = {
-    scaleId: "ionian", section: "a", sectionBar: 0, tension: 0.4, memory: { 4: 0.5 }, previousChord: "I",
+    scaleId: "ionian", section: "a", sectionBar: 1, tension: 0.4, memory: { 4: 0.5 }, previousChord: "I",
   };
   assert.equal(scoreChord(1, { ...ctx, repeatCount: 1 }), scoreChord(4, { ...ctx, repeatCount: 1 }));
   assert.equal(chooseChord({ ...ctx, repeatCount: 1 }), "I");
@@ -349,6 +368,17 @@ test("chooseChord favors dominant at high tension and forces tonic for resolutio
   assert.equal(chooseChord({ ...ctx, resolution: true }), "I");
 });
 
+test("chooseChord limits cadences and forces tonic arrivals despite note memory", () => {
+  const cadence = chooseChord({
+    scaleId: "ionian", section: "a", sectionBar: 3, tension: 0.4, memory: { 6: 100 },
+  });
+  assert.ok(["V", "IV"].includes(cadence));
+  assert.notEqual(cadence, "vi");
+  assert.equal(chooseChord({
+    scaleId: "ionian", section: "b", sectionBar: 0, tension: 0.4, memory: { 4: 100 },
+  }), "I");
+});
+
 test("approachDegree chooses the closest lower scale tone and falls back to the target", () => {
   assert.equal(approachDegree(7, SCALES.ionian), 5);
   assert.equal(approachDegree(6, [0]), 6);
@@ -357,6 +387,10 @@ test("approachDegree chooses the closest lower scale tone and falls back to the 
 test("voiceLead uses the nearest inversion inside the pad window", () => {
   assert.deepEqual(voiceLead(null, [5, 9, 0]), [65, 69, 72]);
   assert.deepEqual(voiceLead([60, 64, 67], [5, 9, 0]), [60, 65, 69]);
+});
+
+test("voiceLead rootPosition keeps the chord root in the lowest pad voice", () => {
+  assert.deepEqual(voiceLead([60, 64, 67], [5, 9, 0], { rootPosition: true }), [65, 69, 72]);
 });
 
 test("chooseChord is deterministic for the same event log", () => {

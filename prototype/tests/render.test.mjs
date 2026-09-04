@@ -36,7 +36,7 @@ function sampleLog(bars = 2) {
 }
 
 function recordingSynth() {
-  const calls = { lead: [], pad: [], bass: [] };
+  const calls = { lead: [], pad: [], bass: [], snare: [], hat: [] };
   return {
     beatSec: 0.6,
     calls,
@@ -44,8 +44,8 @@ function recordingSynth() {
     schedulePad: (...args) => calls.pad.push(args),
     scheduleBass: (...args) => calls.bass.push(args),
     scheduleKick: () => {},
-    scheduleSnare: () => {},
-    scheduleHat: () => {},
+    scheduleSnare: (...args) => calls.snare.push(args),
+    scheduleHat: (...args) => calls.hat.push(args),
     scheduleResolution: () => {},
     scheduleEnding: () => {},
     setReverbSend: () => {},
@@ -90,6 +90,31 @@ test("section b restrikes the connected pad voices on beat three at reduced gain
     when === 34 * 0.6 && duration === 2 * 0.6 && options.gainScale === 0.6
   ));
   assert.ok(restrike);
+});
+
+test("cadence and arrival bars add the seventh, snare pickup, strong root, and root-position pad", () => {
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, sampleLog(16), 0);
+  const atTime = (calls, when) => calls.find(([, scheduledWhen]) => scheduledWhen === when)
+    ?? calls.find(([scheduledWhen]) => scheduledWhen === when);
+  const cadenceSeventh = atTime(synth.calls.bass, 15 * 0.6);
+  assert.ok(cadenceSeventh);
+  assert.equal(cadenceSeventh[3], 0.7);
+  assert.deepEqual(synth.calls.snare.find(([when]) => when === 15.5 * 0.6), [15.5 * 0.6, 0.7]);
+  const arrivalRoot = atTime(synth.calls.bass, 16 * 0.6);
+  assert.ok(arrivalRoot);
+  assert.equal(arrivalRoot[3], 1);
+  const arrivalPad = synth.calls.pad.find(([, when]) => when === 16 * 0.6);
+  assert.ok(arrivalPad);
+  assert.equal(arrivalPad[4].voices[0] % 12, 0);
+});
+
+test("arrival step zero overrides the existing hat pattern with an open hat in sections a and b", () => {
+  const log = sampleLog(16);
+  log.events.push({ kind: "press", beat: 15.5, time: 15.5 * 0.6, degree: 2, midi: 62, velocity: 0.8, length: 0.3, effect: "none", tAfter: 0.4 });
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
+  assert.deepEqual(synth.calls.hat.find(([when]) => when === 16 * 0.6), [16 * 0.6, true]);
 });
 
 test("all 21 scales produce a complete deterministic accompaniment schedule", () => {

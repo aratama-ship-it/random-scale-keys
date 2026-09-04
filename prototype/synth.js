@@ -371,7 +371,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     click.stop(when + 0.006);
   }
 
-  function scheduleSnare(when) {
+  function scheduleSnare(when, gainScale = 1) {
     const noise = context.createBufferSource();
     const bandpass = context.createBiquadFilter();
     const noiseGain = context.createGain();
@@ -381,12 +381,12 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     bandpass.type = "bandpass";
     bandpass.frequency.value = 1800;
     bandpass.Q.value = 0.8;
-    noiseGain.gain.setValueAtTime(0.30, when);
+    noiseGain.gain.setValueAtTime(0.30 * gainScale, when);
     noiseGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.12);
     body.type = "sine";
     body.frequency.setValueAtTime(180, when);
     body.frequency.exponentialRampToValueAtTime(120, when + 0.08);
-    bodyGain.gain.setValueAtTime(0.3, when);
+    bodyGain.gain.setValueAtTime(0.3 * gainScale, when);
     bodyGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.08);
     noise.connect(bandpass);
     bandpass.connect(noiseGain);

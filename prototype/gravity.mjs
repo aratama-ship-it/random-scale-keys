@@ -63,10 +63,10 @@ export const HARMONY_PARENT = Object.freeze({
   ryukyu: "ionian",
 });
 const FUNCTION_PATTERN = Object.freeze({
-  intro: Object.freeze(["tonic", "tonic", "tonic", "subdominant"]),
+  intro: Object.freeze(["tonic", "tonic", "subdominant", "dominant"]),
   a: Object.freeze(["tonic", "tonic", "subdominant", "dominant"]),
-  b: Object.freeze(["submediant", "subdominant", "tonic", "dominant"]),
-  outro: Object.freeze(["subdominant", "tonic", "dominant", "tonic"]),
+  b: Object.freeze(["tonic", "submediant", "subdominant", "dominant"]),
+  outro: Object.freeze(["tonic", "subdominant", "dominant", "tonic"]),
 });
 const PAD_MIDI_MIN = 55;
 const PAD_MIDI_MAX = 79;
@@ -298,7 +298,7 @@ function pitchesForClass(pitchClass) {
   return pitches;
 }
 
-export function voiceLead(previousVoices, chordSemitones) {
+export function voiceLead(previousVoices, chordSemitones, options = {}) {
   const pitchClasses = [...chordSemitones].map((value) => ((value % 12) + 12) % 12);
   if (pitchClasses.length !== 3 || new Set(pitchClasses).size !== 3) {
     throw new TypeError("chordSemitones must contain three distinct pitches");
@@ -331,14 +331,19 @@ export function voiceLead(previousVoices, chordSemitones) {
       });
     });
   });
-  candidates.sort((left, right) => (
+  const rootPitchClass = pitchClasses[0];
+  const rootPositionCandidates = options.rootPosition
+    ? candidates.filter(({ voices }) => voices[0] % 12 === rootPitchClass)
+    : [];
+  const rankedCandidates = rootPositionCandidates.length ? rootPositionCandidates : candidates;
+  rankedCandidates.sort((left, right) => (
     left.movement - right.movement
     || left.voices[0] - right.voices[0]
     || left.voices[1] - right.voices[1]
     || left.voices[2] - right.voices[2]
   ));
-  if (!candidates.length) throw new RangeError("No pad voicing fits the MIDI window");
-  return candidates[0].voices;
+  if (!rankedCandidates.length) throw new RangeError("No pad voicing fits the MIDI window");
+  return rankedCandidates[0].voices;
 }
 
 export function noteMemory(events, decisionBeat) {
@@ -365,6 +370,15 @@ function functionForPosition(section, sectionBar) {
   const pattern = FUNCTION_PATTERN[normalizedSection(section)];
   if (!pattern) throw new RangeError(`Unknown section: ${section}`);
   return pattern[((sectionBar % 4) + 4) % 4];
+}
+
+export function phraseRole(section, sectionBar) {
+  const normalized = normalizedSection(section);
+  const position = ((sectionBar % 4) + 4) % 4;
+  const targetFunction = functionForPosition(normalized, position);
+  if (targetFunction === "dominant") return "cadence";
+  if (position === 0 || (normalized === "outro" && position === 3)) return "arrival";
+  return "free";
 }
 
 export function scoreChord(candidateDegree, ctx) {
@@ -403,7 +417,12 @@ export function scoreChord(candidateDegree, ctx) {
 export function chooseChord(ctx) {
   const scaleId = scaleIdFromScaleOrWorld(ctx.scaleId ?? ctx.worldId);
   if (ctx.resolution) return tonicChordForScale(scaleId);
-  const candidates = Array.from({ length: getScale(harmonyScaleId(scaleId)).intervals.length }, (_, index) => index + 1);
+  const role = phraseRole(ctx.section, ctx.sectionBar ?? ctx.barIndex ?? 0);
+  const functions = chordDegrees(scaleId);
+  if (role === "arrival") return chordLabel(scaleId, functions.tonic);
+  const candidates = role === "cadence"
+    ? [...new Set([functions.dominant, functions.subdominant])]
+    : Array.from({ length: getScale(harmonyScaleId(scaleId)).intervals.length }, (_, index) => index + 1);
   candidates.sort((left, right) => scoreChord(right, ctx) - scoreChord(left, ctx) || left - right);
   return chordLabel(scaleId, candidates[0]);
 }
@@ -449,6 +468,14 @@ export function chordMidiNotes(worldId, scaleId, chordName, octave = 0) {
 export function chordRootInterval(scaleId, chordName) {
   const degree = degreeForChordLabel(scaleId, chordName);
   return triadForDegree(scaleId, degree).intervals[0] % 12;
+}
+
+export function chordSeventhInterval(scaleId, chordName) {
+  const scale = getScale(harmonyScaleId(scaleId));
+  const rootDegree = degreeForChordLabel(scaleId, chordName);
+  const seventhOffset = scale.intervals.length >= 7 ? 6 : 5;
+  const seventhIndex = rootDegree - 1 + seventhOffset;
+  return scale.intervals[seventhIndex % scale.intervals.length] % 12;
 }
 
 export function chordRootMidi(worldId, scaleId, chordName, octaveNumber = 2) {

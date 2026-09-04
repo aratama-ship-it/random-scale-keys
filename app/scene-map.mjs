@@ -360,7 +360,7 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
     .map(({ _order, ...event }) => event);
   return {
     version: "gravity-v0",
-    engine: "accomp-v2",
+    engine: "accomp-v3",
     worldId,
     scaleId,
     seed: normalizedSeed,

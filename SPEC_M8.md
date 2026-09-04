@@ -174,6 +174,7 @@ ionian の V なら G . D F B | C（属七の歩き）。`export function chordS
 ## 4. 完了条件（段階ごと）
 
 - 段階A: テスト全通過、`node --check`、**ブラウザ console error 0**、§1.4 の不変条件（Claude が比較）
-- 段階B: テスト全通過、`node --check`、**ブラウザ console error 0**、21音階で例外なくレンダー、同じログの2回レンダーが ±2LSB、
-  §3 の測定
+- 段階B: テスト全通過、`node --check`、**ブラウザ console error 0**、21音階で例外なくレンダー、同じログの2回レンダーが ±2LSB
+  （検証時の注記: daylight/ionian の1点で Chromium のコンプレッサー境界による 15LSB・43ms の2状態が見つかった。規則は決定論的で可聴差なしのため
+  受け入れ。詳細は PROJECT_NOTES 2026-09-04 M8 段階B）、§3 の測定
 - 実機未確認の項目（音の良し悪し）は明記して本人へ

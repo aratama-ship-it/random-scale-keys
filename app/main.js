@@ -6,6 +6,7 @@ import {
   chordMidiNotes,
   chordRootInterval,
   chordRootMidi,
+  chordSeventhInterval,
   chordToneWeight,
   chooseChord,
   createLayout,
@@ -20,6 +21,7 @@ import {
   midiForDegree,
   noteMemory,
   noteLengthFromInterval,
+  phraseRole,
   quantize,
   reverbSendFromSilence,
   resolveScaleId,
@@ -340,9 +342,9 @@ function rootMidiForChord(worldId, scaleId, chordName) {
   return chordRootMidi(worldId, scaleId, chordName, 2);
 }
 
-function voicingForChord(chordName, previousVoices) {
+function voicingForChord(chordName, previousVoices, options) {
   const pitchClasses = chordMidiNotes(layout.worldId, layout.scaleId, chordName).map((midi) => midi % 12);
-  return voiceLead(previousVoices, pitchClasses);
+  return voiceLead(previousVoices, pitchClasses, options);
 }
 
 function bassChordNotes(chordName) {
@@ -393,7 +395,9 @@ function chooseNextChord(barIndex, decisionBeat, currentTension) {
 function scheduleAnswerAtBoundary(beat, when, section) {
   if (beat === 0 || beat % 8 !== 0 || answerCount >= 8 || !lastPressEvent) return;
   if (lastPressEvent.beat < beat - 1 || lastPressEvent.beat >= beat || lastPressEvent.role === "stable") return;
-  const degree = answerDegree(layout.scaleId, lastPressEvent.degree, currentChord);
+  const degree = beat % 16 === 0 && beat > 0
+    ? 1
+    : answerDegree(layout.scaleId, lastPressEvent.degree, currentChord);
   const event = {
     time: when - takeStart,
     beat,
@@ -433,12 +437,14 @@ function scheduleAccompanimentStep(step) {
     return;
   }
 
+  const role = phraseRole(section, barIndex % PERFORMANCE.beatsPerBar);
+  const arrival = barIndex > 0 && role === "arrival";
   const resolving = beat >= pendingResolutionBeat;
   if (stepInBar === 0) {
     tension = decayTension(tension, beat - lastTensionBeat);
     lastTensionBeat = beat;
     currentChord = resolving || barIndex === 0 ? tonicChordForScale(layout.scaleId) : nextChord;
-    padVoices = voicingForChord(currentChord, padVoices);
+    padVoices = voicingForChord(currentChord, padVoices, { rootPosition: arrival });
     chordHistory.push(currentChord);
     synth.schedulePad(currentChord, when, synth.beatSec * PERFORMANCE.beatsPerBar, tension, { voices: padVoices });
   }
@@ -450,7 +456,7 @@ function scheduleAccompanimentStep(step) {
 
   if (resolving) {
     currentChord = tonicChordForScale(layout.scaleId);
-    padVoices = voicingForChord(currentChord, padVoices);
+    padVoices = voicingForChord(currentChord, padVoices, { rootPosition: arrival });
     if (stepInBar !== 0) synth.schedulePad(currentChord, when, synth.beatSec * (PERFORMANCE.beatsPerBar - (beat % PERFORMANCE.beatsPerBar)), tension, { voices: padVoices });
     synth.scheduleResolution(world.rootMidi, when);
     pendingResolutionBeat = Infinity;
@@ -467,12 +473,15 @@ function scheduleAccompanimentStep(step) {
   const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
   const thirdBeatBass = currentTension >= 0.3 ? bassNotes[0] + 12 : fifth;
   if (stepInBar === 0) {
-    synth.scheduleBass(bassNotes[0], when, 0.28, 0.9);
+    synth.scheduleBass(bassNotes[0], when, 0.28, arrival ? 1 : 0.9);
   } else if (stepInBar === 8) {
     synth.scheduleBass(thirdBeatBass, when, 0.28, 0.75);
     if (section === "b") {
       synth.schedulePad(currentChord, when, synth.beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
     }
+  } else if (stepInBar === 12 && role === "cadence") {
+    const seventhPitchClass = (world.rootMidi + chordSeventhInterval(layout.scaleId, currentChord)) % 12;
+    synth.scheduleBass(nearestMidiForPitchClass(seventhPitchClass, thirdBeatBass), when, 0.28, 0.7);
   } else if (stepInBar === 14) {
     if (barIndex + 1 < PERFORMANCE.bars) nextChord = chooseNextChord(barIndex, beat, currentTension);
     else nextChord = tonicChordForScale(layout.scaleId);
@@ -482,8 +491,9 @@ function scheduleAccompanimentStep(step) {
     synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
   }
   if (snareForStep(section, stepInBar)) synth.scheduleSnare(when);
+  if (role === "cadence" && stepInBar === 14) synth.scheduleSnare(when, 0.7);
   if ((section === "a" || section === "b") && silenceBeats < 8) {
-    const hat = hatForStep(currentTension, stepInBar);
+    const hat = arrival && stepInBar === 0 ? "open" : hatForStep(currentTension, stepInBar);
     if (hat) synth.scheduleHat(when + hatSwingSeconds(layout.worldId, stepInBar, synth.beatSec), hat === "open");
   }
 }
@@ -555,7 +565,7 @@ async function beginTake(eventType) {
   nextStep = 0;
   takeLog = {
     version: "gravity-v0",
-    engine: "accomp-v2",
+    engine: "accomp-v3",
     worldId: layout.worldId,
     scaleId: layout.scaleId,
     seed: layout.seed,
@@ -808,7 +818,7 @@ function showError(error) {
 function normalizeLoadedLog(log) {
   return {
     ...log,
-    engine: "accomp-v2",
+    engine: "accomp-v3",
     scaleId: resolveScaleId(log.worldId, log.scaleId),
     events: log.events.map((event) => ({
       ...event,

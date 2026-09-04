@@ -3,6 +3,7 @@ import {
   chordMidiNotes,
   chordRootInterval,
   chordRootMidi,
+  chordSeventhInterval,
   chooseChord,
   decayTension,
   getScale,
@@ -12,6 +13,7 @@ import {
   hatSwingSeconds,
   kickForStep,
   noteMemory,
+  phraseRole,
   reverbSendFromSilence,
   resolveScaleId,
   sectionForBar,
@@ -38,10 +40,10 @@ function repeatedTail(entries, chordName) {
   return count;
 }
 
-function voicingForChord(worldId, scaleId, chordName, previousVoices) {
+function voicingForChord(worldId, scaleId, chordName, previousVoices, options) {
   const pitchClasses = chordMidiNotes(worldId, scaleId, chordName)
     .map((midi) => midi % 12);
-  return voiceLead(previousVoices, pitchClasses);
+  return voiceLead(previousVoices, pitchClasses, options);
 }
 
 export function accompanimentPlan(log) {
@@ -76,11 +78,12 @@ export function accompanimentPlan(log) {
       tonicPitchClass: world.rootMidi % 12,
       resolution,
     });
+    const arrival = phraseRole(sectionForBar(barIndex), barIndex % 4) === "arrival";
     entries.push({
       barIndex,
       decisionBeat,
       chordName,
-      voices: voicingForChord(log.worldId, scaleId, chordName, previous.voices),
+      voices: voicingForChord(log.worldId, scaleId, chordName, previous.voices, { rootPosition: arrival }),
     });
   }
   return entries;
@@ -149,6 +152,8 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     const barIndex = Math.floor(step / 16);
     const stepInBar = step % 16;
     const section = sectionForBar(barIndex);
+    const role = phraseRole(section, barIndex % 4);
+    const arrival = barIndex > 0 && role === "arrival";
     const schedulesStep = includesBeat(beat);
 
     while (eventIndex < events.length && events[eventIndex].beat <= beat + 1e-9) {
@@ -168,7 +173,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       lastTensionBeat = beat;
       chordName = resolving ? tonicChordForScale(scaleId) : chordPlan[barIndex].chordName;
       padVoices = resolving
-        ? voicingForChord(log.worldId, scaleId, chordName, padVoices)
+        ? voicingForChord(log.worldId, scaleId, chordName, padVoices, { rootPosition: arrival })
         : chordPlan[barIndex].voices;
       if (schedulesStep) {
         synth.schedulePad(chordName, startTime + beat * beatSec, beatSec * 4, tension, {
@@ -186,7 +191,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
 
     if (resolving) {
       chordName = tonicChordForScale(scaleId);
-      padVoices = voicingForChord(log.worldId, scaleId, chordName, padVoices);
+      padVoices = voicingForChord(log.worldId, scaleId, chordName, padVoices, { rootPosition: arrival });
       if (schedulesStep) {
         if (stepInBar !== 0) synth.schedulePad(chordName, when, beatSec * (4 - (beat % 4)), tension, { voices: padVoices });
         synth.scheduleResolution(world.rootMidi, when);
@@ -201,12 +206,15 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
     const thirdBeatBass = currentTension >= 0.3 ? bassNotes[0] + 12 : fifth;
     if (stepInBar === 0) {
-      synth.scheduleBass(bassNotes[0], when, 0.28, 0.9);
+      synth.scheduleBass(bassNotes[0], when, 0.28, arrival ? 1 : 0.9);
     } else if (stepInBar === 8) {
       synth.scheduleBass(thirdBeatBass, when, 0.28, 0.75);
       if (section === "b") {
         synth.schedulePad(chordName, when, beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
       }
+    } else if (stepInBar === 12 && role === "cadence") {
+      const seventhPitchClass = (world.rootMidi + chordSeventhInterval(scaleId, chordName)) % 12;
+      synth.scheduleBass(nearestMidiForPitchClass(seventhPitchClass, thirdBeatBass), when, 0.28, 0.7);
     } else if (stepInBar === 14) {
       const nextChord = chordPlan[barIndex + 1]?.chordName ?? tonicChordForScale(scaleId);
       const nextRootSemitone = chordRootInterval(scaleId, nextChord);
@@ -217,8 +225,9 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     if (snareForStep(section, stepInBar)) {
       synth.scheduleSnare(when);
     }
+    if (role === "cadence" && stepInBar === 14) synth.scheduleSnare(when, 0.7);
     if ((section === "a" || section === "b") && silenceBeats < 8) {
-      const hat = hatForStep(currentTension, stepInBar);
+      const hat = arrival && stepInBar === 0 ? "open" : hatForStep(currentTension, stepInBar);
       if (hat) {
         const swing = hatSwingSeconds(log.worldId, stepInBar, beatSec);
         synth.scheduleHat(when + swing, hat === "open");

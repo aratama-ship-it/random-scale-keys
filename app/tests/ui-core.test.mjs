@@ -148,11 +148,12 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.8.0 waiting screen includes the exact performance tip and idle-only toggle", async () => {
+test("v0.9.0 waiting screen includes the exact performance tip and cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
-  assert.match(html, /random-scale-keys v0\.8\.0/);
+  assert.match(html, /random-scale-keys v0\.9\.0/);
   assert.match(html, /コツ: 同じキー付近を続けて使うとループ感が出ます。展開したいときは使う位置を少しずつずらします。/);
   assert.match(main, /performanceTip\.hidden = state !== "idle"/);
-  assert.match(main, /engine: "accomp-v2"/);
+  assert.equal(main.match(/engine: "accomp-v3"/g)?.length, 2);
+  assert.match(main, /beat % 16 === 0 && beat > 0\s*\? 1\s*:/);
 });
