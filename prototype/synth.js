@@ -10,6 +10,9 @@ import {
 
 const MIN_GAIN = 0.0001;
 const MASTER_INPUT_GAIN = 1.25;
+const LEAD_BUS_GAIN = 1.55;
+const ACCOMP_BUS_GAIN = 0.62;
+const PAD_REVERB_MULTIPLIER = 1.2;
 
 function midiToFrequency(midi) {
   return 440 * 2 ** ((midi - 69) / 12);
@@ -85,6 +88,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   const reverbLowpass = context.createBiquadFilter();
   const reverbOutput = context.createGain();
   const padBus = context.createGain();
+  const padReverbSend = context.createGain();
   const leadBus = context.createGain();
   const accompBus = context.createGain();
   const clickBus = context.createGain();
@@ -135,12 +139,15 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   reverbOutput.connect(isStem ? fxOutput : master);
 
   padBus.gain.value = 1;
-  padBus.connect(isStem ? accompDryOutput : master);
-  padBus.connect(reverbInput);
-  leadBus.gain.value = 1;
+  padBus.connect(accompBus);
+  padBus.connect(padReverbSend);
+  padReverbSend.gain.value = ACCOMP_BUS_GAIN * PAD_REVERB_MULTIPLIER;
+  padReverbSend.connect(reverbInput);
+  leadBus.gain.value = LEAD_BUS_GAIN;
   leadBus.connect(isStem ? leadDryOutput : master);
   leadBus.connect(reverbInput);
-  accompBus.connect(accompDryOutput);
+  accompBus.gain.value = ACCOMP_BUS_GAIN;
+  accompBus.connect(isStem ? accompDryOutput : master);
   clickBus.connect(accompDryOutput);
   leadDryOutput.connect(master);
   accompDryOutput.connect(master);
@@ -165,7 +172,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   delayOutput.connect(isStem ? fxOutput : master);
   delayOutput.connect(reverbInput);
 
-  const accompDestination = isStem ? accompBus : master;
+  const accompDestination = accompBus;
   const clickDestination = isStem ? clickBus : master;
 
   function voice({ midi, type, detune = 0, gain = 1, when, length, envelope, destinationNode = master, reverb = true, filter, delaySend = false, pan = null }) {
@@ -187,20 +194,20 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     oscillator.connect(amplitude);
     let output = amplitude;
     if (filter) {
-      const lowpass = context.createBiquadFilter();
-      lowpass.type = "lowpass";
-      lowpass.Q.value = filter.q ?? 0.7;
+      const filterNode = context.createBiquadFilter();
+      filterNode.type = filter.type ?? "lowpass";
+      filterNode.Q.value = filter.q ?? 0.7;
       if (filter.sweep) {
-        lowpass.frequency.setValueAtTime(400, when);
-        lowpass.frequency.exponentialRampToValueAtTime(4000, when + 0.3);
+        filterNode.frequency.setValueAtTime(400, when);
+        filterNode.frequency.exponentialRampToValueAtTime(4000, when + 0.3);
       } else if (filter.envelope) {
-        lowpass.frequency.setValueAtTime(Math.min(8000, filter.cutoff * 1.8), when);
-        lowpass.frequency.exponentialRampToValueAtTime(filter.cutoff, when + 0.4);
+        filterNode.frequency.setValueAtTime(Math.min(8000, filter.cutoff * 1.8), when);
+        filterNode.frequency.exponentialRampToValueAtTime(filter.cutoff, when + 0.4);
       } else {
-        lowpass.frequency.setValueAtTime(filter.cutoff, when);
+        filterNode.frequency.setValueAtTime(filter.cutoff, when);
       }
-      amplitude.connect(lowpass);
-      output = lowpass;
+      amplitude.connect(filterNode);
+      output = filterNode;
     }
     if (pan !== null) {
       const panner = context.createStereoPanner();
@@ -302,7 +309,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   }
 
   function schedulePad(chordName, when, duration, tension = 0, options = {}) {
-    const notes = chordMidiNotes(worldId, scaleId, chordName, -1);
+    const notes = options.voices ?? chordMidiNotes(worldId, scaleId, chordName, -1);
     const envelope = worldId === "daylight"
       ? { attack: 0.8, decay: 0.01, sustain: 1, release: 1.5 }
       : { attack: 1.2, decay: 0.01, sustain: 1, release: 2 };
@@ -312,33 +319,32 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     const scheduleChordVoices = (midiOffset, layerGain) => notes.forEach((midi, index) => {
       if (worldId === "daylight") {
         const voiceDetune = index === 0 ? -detune : index === 2 ? detune : 0;
-        voice({ midi: midi + midiOffset, type: "triangle", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 2500 }, pan: -0.3 });
-        voice({ midi: midi + midiOffset, type: "triangle", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 2500 }, pan: 0.3 });
+        voice({ midi: midi + midiOffset, type: "triangle", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 2000 }, pan: -0.3 });
+        voice({ midi: midi + midiOffset, type: "triangle", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 2000 }, pan: 0.3 });
       } else {
         const voiceDetune = index === 0 ? -detune : index === 2 ? detune : 0;
-        voice({ midi: midi + midiOffset, type: "sine", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 1800 }, pan: -0.3 });
-        voice({ midi: midi + midiOffset, type: "triangle", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 1800 }, pan: 0.3 });
+        voice({ midi: midi + midiOffset, type: "sine", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 1500 }, pan: -0.3 });
+        voice({ midi: midi + midiOffset, type: "triangle", detune: voiceDetune, gain: gain * layerGain / 6, when, length: duration, envelope, destinationNode: padBus, reverb: false, filter: { cutoff: 1500 }, pan: 0.3 });
       }
     });
     scheduleChordVoices(0, 1);
     if (options.octaveLayer) scheduleChordVoices(12, 0.5);
   }
 
-  function scheduleBass(midi, when, duration = beatSec * 0.45, gainScale = 1, release = 0.08) {
+  function scheduleBass(midi, when, duration = 0.28, gainScale = 1, release = 0.04) {
     const envelope = { attack: 0.005, decay: 0.08, sustain: 0.65, release };
     const gain = 0.16 * gainScale;
-    voice({ midi, type: "sine", gain, when, length: duration, envelope, destinationNode: accompDestination, reverb: false });
-    if (worldId === "daylight") {
-      voice({ midi, type: "square", gain: gain * 0.15, when, length: duration, envelope, destinationNode: accompDestination, reverb: false });
-    }
+    const filter = { type: "highpass", cutoff: 45 };
+    voice({ midi, type: "sine", gain, when, length: duration, envelope, destinationNode: accompDestination, reverb: false, filter });
+    voice({ midi, type: "triangle", gain: gain * 0.10, when, length: duration, envelope, destinationNode: accompDestination, reverb: false, filter });
   }
 
   function duckForKick(when) {
-    [padBus.gain, leadBus.gain].forEach((gain) => {
+    [[padBus.gain, 1], [leadBus.gain, LEAD_BUS_GAIN]].forEach(([gain, base]) => {
       gain.cancelScheduledValues(when);
-      gain.setValueAtTime(1, when);
-      gain.linearRampToValueAtTime(0.7, when + 0.01);
-      gain.linearRampToValueAtTime(1, when + 0.16);
+      gain.setValueAtTime(base, when);
+      gain.linearRampToValueAtTime(base * 0.7, when + 0.01);
+      gain.linearRampToValueAtTime(base, when + 0.16);
     });
   }
 
@@ -346,21 +352,21 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.frequency.setValueAtTime(150, when);
-    oscillator.frequency.exponentialRampToValueAtTime(50, when + 0.12);
+    oscillator.frequency.exponentialRampToValueAtTime(50, when + 0.10);
     gain.gain.setValueAtTime(0.5, when);
-    gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.12);
+    gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.10);
     oscillator.connect(gain);
     gain.connect(accompDestination);
     const click = context.createBufferSource();
     const clickGain = context.createGain();
     click.buffer = whiteNoiseBuffer(context, 0.005, drumRandom);
-    clickGain.gain.setValueAtTime(0.5, when);
+    clickGain.gain.setValueAtTime(0.35, when);
     clickGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.005);
     click.connect(clickGain);
     clickGain.connect(accompDestination);
     duckForKick(when);
     oscillator.start(when);
-    oscillator.stop(when + 0.13);
+    oscillator.stop(when + 0.10);
     click.start(when);
     click.stop(when + 0.006);
   }
@@ -375,7 +381,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     bandpass.type = "bandpass";
     bandpass.frequency.value = 1800;
     bandpass.Q.value = 0.8;
-    noiseGain.gain.setValueAtTime(0.35, when);
+    noiseGain.gain.setValueAtTime(0.30, when);
     noiseGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.12);
     body.type = "sine";
     body.frequency.setValueAtTime(180, when);
@@ -402,7 +408,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     source.buffer = whiteNoiseBuffer(context, duration, drumRandom);
     highpass.type = "highpass";
     highpass.frequency.value = 7000;
-    gain.gain.setValueAtTime((worldId === "night" ? 0.7 : 1) * 0.09 * 0.8, when);
+    gain.gain.setValueAtTime((worldId === "night" ? 0.7 : 1) * 0.09 * 0.8 * 0.6, when);
     gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + duration);
     source.connect(highpass);
     highpass.connect(gain);

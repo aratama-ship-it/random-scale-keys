@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   diagnosticDisabledForState,
@@ -145,4 +146,13 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.equal(tracker.current, 2);
   assert.equal(tracker.max, 3);
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
+});
+
+test("v0.8.0 waiting screen includes the exact performance tip and idle-only toggle", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
+  assert.match(html, /random-scale-keys v0\.8\.0/);
+  assert.match(html, /コツ: 同じキー付近を続けて使うとループ感が出ます。展開したいときは使う位置を少しずつずらします。/);
+  assert.match(main, /performanceTip\.hidden = state !== "idle"/);
+  assert.match(main, /engine: "accomp-v2"/);
 });

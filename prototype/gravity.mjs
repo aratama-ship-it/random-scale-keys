@@ -52,6 +52,15 @@ const SCALE_DEFINITIONS = Object.freeze([
 const ROLE_ORDER = Object.freeze(["stable", "floating", "tension"]);
 const ROLE_DELTA = Object.freeze({ stable: -0.3, floating: 0.05, tension: 0.22 });
 const ROMAN_NUMERALS = Object.freeze(["I", "II", "III", "IV", "V", "VI", "VII"]);
+const FUNCTION_PATTERN = Object.freeze({
+  intro: Object.freeze(["tonic", "tonic", "tonic", "subdominant"]),
+  a: Object.freeze(["tonic", "tonic", "subdominant", "dominant"]),
+  b: Object.freeze(["submediant", "subdominant", "tonic", "dominant"]),
+  outro: Object.freeze(["subdominant", "tonic", "dominant", "tonic"]),
+});
+const PAD_MIDI_MIN = 55;
+const PAD_MIDI_MAX = 79;
+const PAD_MAX_SPAN = 16;
 
 function frozenRoles(roles) {
   return Object.freeze(Object.fromEntries(
@@ -258,6 +267,158 @@ function degreeForChordLabel(scaleId, label) {
     .find((candidate) => chordLabel(scaleId, candidate) === label);
   if (!degree) throw new RangeError(`Unknown chord ${label} for ${scaleId}`);
   return degree;
+}
+
+function chordPitchClasses(scaleId, degree, tonicPitchClass = 0) {
+  return triadForDegree(scaleId, degree).intervals
+    .map((interval) => ((tonicPitchClass + interval) % 12 + 12) % 12);
+}
+
+function permutations(values) {
+  if (values.length <= 1) return [[...values]];
+  return values.flatMap((value, index) => permutations([
+    ...values.slice(0, index),
+    ...values.slice(index + 1),
+  ]).map((tail) => [value, ...tail]));
+}
+
+function pitchesForClass(pitchClass) {
+  const pitches = [];
+  for (let midi = pitchClass; midi <= PAD_MIDI_MAX; midi += 12) {
+    if (midi >= PAD_MIDI_MIN) pitches.push(midi);
+  }
+  return pitches;
+}
+
+export function voiceLead(previousVoices, chordSemitones) {
+  const pitchClasses = [...chordSemitones].map((value) => ((value % 12) + 12) % 12);
+  if (pitchClasses.length !== 3 || new Set(pitchClasses).size !== 3) {
+    throw new TypeError("chordSemitones must contain three distinct pitches");
+  }
+  if (!previousVoices?.length) {
+    const voices = [];
+    pitchClasses.forEach((pitchClass) => {
+      let midi = pitchClass;
+      while (midi < PAD_MIDI_MIN || (voices.length && midi <= voices.at(-1))) midi += 12;
+      voices.push(midi);
+    });
+    if (voices.at(-1) - voices[0] > PAD_MAX_SPAN) {
+      voices[voices.length - 1] -= 12;
+      voices.sort((left, right) => left - right);
+    }
+    return voices;
+  }
+  if (previousVoices.length !== 3) throw new TypeError("previousVoices must contain three pitches");
+
+  const candidates = [];
+  permutations(pitchClasses).forEach((orderedClasses) => {
+    pitchesForClass(orderedClasses[0]).forEach((low) => {
+      pitchesForClass(orderedClasses[1]).forEach((middle) => {
+        pitchesForClass(orderedClasses[2]).forEach((high) => {
+          if (!(low < middle && middle < high) || high - low > PAD_MAX_SPAN) return;
+          const voices = [low, middle, high];
+          const movement = voices.reduce((sum, midi, index) => sum + Math.abs(midi - previousVoices[index]), 0);
+          candidates.push({ voices, movement });
+        });
+      });
+    });
+  });
+  candidates.sort((left, right) => (
+    left.movement - right.movement
+    || left.voices[0] - right.voices[0]
+    || left.voices[1] - right.voices[1]
+    || left.voices[2] - right.voices[2]
+  ));
+  if (!candidates.length) throw new RangeError("No pad voicing fits the MIDI window");
+  return candidates[0].voices;
+}
+
+export function noteMemory(events, decisionBeat) {
+  if (!Array.isArray(events) || !Number.isFinite(decisionBeat)) {
+    throw new TypeError("events and a finite decisionBeat are required");
+  }
+  const memory = {};
+  events.forEach((event) => {
+    if (event.kind !== "press" && event.kind !== "answer") return;
+    const deltaBeats = decisionBeat - event.beat;
+    if (!Number.isFinite(deltaBeats) || deltaBeats < 0 || deltaBeats > 8) return;
+    if (!Number.isInteger(event.degree) || !Number.isFinite(event.velocity)) return;
+    const weight = event.velocity * Math.exp(-deltaBeats / 4);
+    memory[event.degree] = (memory[event.degree] ?? 0) + weight;
+  });
+  return memory;
+}
+
+function normalizedSection(section) {
+  return section === "outro-last" ? "outro" : section;
+}
+
+function functionForPosition(section, sectionBar) {
+  const pattern = FUNCTION_PATTERN[normalizedSection(section)];
+  if (!pattern) throw new RangeError(`Unknown section: ${section}`);
+  return pattern[((sectionBar % 4) + 4) % 4];
+}
+
+export function scoreChord(candidateDegree, ctx) {
+  const scaleId = scaleIdFromScaleOrWorld(ctx.scaleId ?? ctx.worldId);
+  const scale = getScale(scaleId);
+  if (!Number.isInteger(candidateDegree) || candidateDegree < 1 || candidateDegree > scale.intervals.length) {
+    throw new RangeError(`Invalid chord degree: ${candidateDegree}`);
+  }
+  const functions = chordDegrees(scaleId);
+  const targetFunction = functionForPosition(ctx.section, ctx.sectionBar ?? ctx.barIndex ?? 0);
+  const chordNotes = triadForDegree(scaleId, candidateDegree).degrees;
+  const memory = ctx.memory ?? noteMemory(ctx.events ?? [], ctx.decisionBeat ?? 0);
+  const fit = Object.entries(memory).reduce((sum, [degree, weight]) => (
+    sum + weight * (chordNotes.includes(Number(degree)) ? 1 : -0.5)
+  ), 0);
+  const functionBias = (candidateDegree === functions[targetFunction] ? 0.6 : 0)
+    + (candidateDegree === functions.tonic ? 0.15 : 0);
+  const tonicPitchClass = ctx.tonicPitchClass ?? 0;
+  const nextVoices = ctx.previousVoices
+    ? voiceLead(ctx.previousVoices, chordPitchClasses(scaleId, candidateDegree, tonicPitchClass))
+    : null;
+  const voiceLeading = nextVoices
+    ? -0.04 * nextVoices.reduce((sum, midi, index) => sum + Math.abs(midi - ctx.previousVoices[index]), 0)
+    : 0;
+  const previousDegree = ctx.previousDegree
+    ?? (ctx.previousChord ? degreeForChordLabel(scaleId, ctx.previousChord) : null);
+  const repeatPenalty = candidateDegree === previousDegree && (ctx.repeatCount ?? 0) >= 2 ? -0.5 : 0;
+  const tensionBias = ctx.tension >= 0.6 && candidateDegree === functions.dominant
+    ? 0.5
+    : (ctx.tension < 0.3 && candidateDegree === functions.tonic ? 0.2 : 0);
+  return fit + functionBias + voiceLeading + repeatPenalty + tensionBias;
+}
+
+export function chooseChord(ctx) {
+  const scaleId = scaleIdFromScaleOrWorld(ctx.scaleId ?? ctx.worldId);
+  if (ctx.resolution) return tonicChordForScale(scaleId);
+  const candidates = Array.from({ length: getScale(scaleId).intervals.length }, (_, index) => index + 1);
+  candidates.sort((left, right) => scoreChord(right, ctx) - scoreChord(left, ctx) || left - right);
+  return chordLabel(scaleId, candidates[0]);
+}
+
+export function approachDegree(nextRootSemitone, scale) {
+  const intervals = Array.isArray(scale) ? scale : scale?.intervals;
+  if (!Number.isFinite(nextRootSemitone) || !Array.isArray(intervals)) {
+    throw new TypeError("nextRootSemitone and scale intervals are required");
+  }
+  const nearby = [];
+  intervals.forEach((interval) => {
+    for (let octave = -2; octave <= 2; octave += 1) {
+      const semitone = interval + octave * 12;
+      const difference = semitone - nextRootSemitone;
+      if (Math.abs(difference) >= 1 && Math.abs(difference) <= 2) {
+        nearby.push({ interval, difference });
+      }
+    }
+  });
+  nearby.sort((left, right) => (
+    Math.abs(left.difference) - Math.abs(right.difference)
+    || (left.difference < 0 ? -1 : 1) - (right.difference < 0 ? -1 : 1)
+    || left.interval - right.interval
+  ));
+  return nearby.length ? nearby[0].interval : ((nextRootSemitone % 12) + 12) % 12;
 }
 
 export function chordDegreeNotes(scaleId, chordName) {

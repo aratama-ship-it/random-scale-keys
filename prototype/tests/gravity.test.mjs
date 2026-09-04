@@ -5,6 +5,7 @@ import {
   accentForBeat,
   allocateKeys,
   answerDegree,
+  approachDegree,
   EFFECT_COUNTS,
   KEY_CODES,
   ROLE_COUNTS,
@@ -17,16 +18,20 @@ import {
   chordRootMidi,
   chordForTension,
   chordToneWeight,
+  chooseChord,
   createLayout,
   deriveRoles,
   isResolution,
+  noteMemory,
   noteLengthFromInterval,
   quantize,
   reverbSendFromSilence,
   sectionForBar,
+  scoreChord,
   tonicChordForScale,
   updateTension,
   velocityFromInterval,
+  voiceLead,
 } from "../gravity.mjs";
 
 test("createLayout is deterministic for the same seed and changes for another seed", () => {
@@ -147,17 +152,19 @@ test("sectionForBar returns every v0.2 section at its boundaries", () => {
   );
 });
 
-test("chord degrees, labels, and bar rules reproduce ionian and aeolian", () => {
+test("chord degrees, labels, and section skeletons reproduce ionian and aeolian", () => {
   assert.deepEqual(chordDegrees("ionian"), { tonic: 1, subdominant: 4, dominant: 5, submediant: 6 });
   assert.deepEqual(chordDegrees("aeolian"), { tonic: 1, subdominant: 4, dominant: 7, submediant: 6 });
   assert.deepEqual([1, 4, 5, 6].map((degree) => chordLabel("ionian", degree)), ["I", "IV", "V", "vi"]);
   assert.deepEqual([1, 4, 7, 6].map((degree) => chordLabel("aeolian", degree)), ["i", "iv", "VII", "VI"]);
-  assert.deepEqual([0, 1, 2, 3].map((bar) => chordForBar("ionian", bar, 0)), ["I", "I", "IV", "V"]);
-  assert.deepEqual([0, 1, 2, 3].map((bar) => chordForBar("aeolian", bar, 0)), ["i", "i", "VI", "VII"]);
-  assert.equal(chordForBar("ionian", 1, 0.4), "vi");
-  assert.equal(chordForBar("aeolian", 1, 0.4), "iv");
-  assert.deepEqual([0, 1, 2, 3].map((bar) => chordForBar("ionian", bar, 0.7)), ["V", "V", "V", "V"]);
-  assert.deepEqual([0, 1, 2, 3].map((bar) => chordForBar("aeolian", bar, 0.7)), ["VII", "VII", "VII", "VII"]);
+  const skeleton = (scaleId, section) => [0, 1, 2, 3].map((sectionBar) => chooseChord({
+    scaleId, section, sectionBar, tension: 0.4, memory: {},
+  }));
+  assert.deepEqual(skeleton("ionian", "intro"), ["I", "I", "I", "IV"]);
+  assert.deepEqual(skeleton("ionian", "a"), ["I", "I", "IV", "V"]);
+  assert.deepEqual(skeleton("ionian", "b"), ["vi", "IV", "I", "V"]);
+  assert.deepEqual(skeleton("ionian", "outro"), ["IV", "I", "V", "I"]);
+  assert.deepEqual(skeleton("aeolian", "b"), ["VI", "iv", "i", "VII"]);
 });
 
 test("all nine five- and six-note scales use the specified interval-based tonic and function roots", () => {
@@ -181,11 +188,11 @@ test("all nine five- and six-note scales use the specified interval-based tonic 
   });
 });
 
-test("short-scale bar progressions use submediant, subdominant, and dominant as specified", () => {
-  const rootForBar = (bar, tension) => chordDegreeNotes("egyptian", chordForBar("egyptian", bar, tension))[0];
-  assert.deepEqual([0, 1, 2, 3].map((bar) => rootForBar(bar, 0)), [1, 1, 5, 4]);
-  assert.equal(rootForBar(1, 0.4), 3);
-  assert.deepEqual([0, 1, 2, 3].map((bar) => rootForBar(bar, 0.7)), [4, 4, 4, 4]);
+test("short-scale chord choices use the shared section skeleton", () => {
+  const rootForPosition = (sectionBar) => chordDegreeNotes("egyptian", chooseChord({
+    scaleId: "egyptian", section: "a", sectionBar, tension: 0.4, memory: {},
+  }))[0];
+  assert.deepEqual([0, 1, 2, 3].map(rootForPosition), [1, 1, 3, 4]);
 });
 
 test("all twelve seven-note scales retain their legacy chord degrees and tonic triad", () => {
@@ -236,4 +243,71 @@ test("answerDegree chooses the nearest chord degree with circular and lower tie 
 test("chordToneWeight favors chord tones and shortens passing tones", () => {
   assert.deepEqual(chordToneWeight([1, 3, 5], 3), { length: 1, gain: 1.12 });
   assert.deepEqual(chordToneWeight([1, 3, 5], 2), { length: 0.8, gain: 0.8 });
+});
+
+test("noteMemory applies velocity decay and drops notes older than eight beats", () => {
+  const memory = noteMemory([
+    { kind: "press", beat: 4, degree: 1, velocity: 0.8 },
+    { kind: "answer", beat: 0, degree: 3, velocity: 0.5 },
+    { kind: "press", beat: -0.01, degree: 5, velocity: 1 },
+    { kind: "release", beat: 7, degree: 7, velocity: 1 },
+  ], 8);
+  assert.ok(Math.abs(memory[1] - 0.8 * Math.exp(-1)) < 1e-12);
+  assert.ok(Math.abs(memory[3] - 0.5 * Math.exp(-2)) < 1e-12);
+  assert.equal(memory[5], undefined);
+  assert.equal(memory[7], undefined);
+});
+
+test("scoreChord combines note fit with the section function bias", () => {
+  const ctx = { scaleId: "ionian", section: "a", sectionBar: 0, tension: 0.4, memory: { 1: 2, 2: 1 } };
+  assert.equal(scoreChord(1, ctx), 2.25);
+  assert.equal(scoreChord(4, ctx), 1.5);
+});
+
+test("chooseChord follows memory over the skeleton when played notes strongly agree", () => {
+  const base = { scaleId: "ionian", section: "a", sectionBar: 0, tension: 0.4 };
+  assert.equal(chooseChord({ ...base, memory: {} }), "I");
+  assert.equal(chooseChord({ ...base, memory: { 1: 1, 3: 1, 5: 1 } }), "I");
+  assert.equal(chooseChord({ ...base, memory: { 1: 2, 4: 2, 6: 2 } }), "IV");
+});
+
+test("chooseChord repeat penalty breaks a constructed tie after two bars", () => {
+  const ctx = {
+    scaleId: "ionian", section: "a", sectionBar: 0, tension: 0.4, memory: { 4: 0.5 }, previousChord: "I",
+  };
+  assert.equal(scoreChord(1, { ...ctx, repeatCount: 1 }), scoreChord(4, { ...ctx, repeatCount: 1 }));
+  assert.equal(chooseChord({ ...ctx, repeatCount: 1 }), "I");
+  assert.notEqual(chooseChord({ ...ctx, repeatCount: 2 }), "I");
+});
+
+test("chooseChord favors dominant at high tension and forces tonic for resolution", () => {
+  const ctx = { scaleId: "ionian", section: "a", sectionBar: 3, tension: 0.7, memory: {} };
+  assert.equal(chooseChord(ctx), "V");
+  assert.equal(chooseChord({ ...ctx, resolution: true }), "I");
+});
+
+test("approachDegree chooses the closest lower scale tone and falls back to the target", () => {
+  assert.equal(approachDegree(7, SCALES.ionian), 5);
+  assert.equal(approachDegree(6, [0]), 6);
+});
+
+test("voiceLead uses the nearest inversion inside the pad window", () => {
+  assert.deepEqual(voiceLead(null, [5, 9, 0]), [65, 69, 72]);
+  assert.deepEqual(voiceLead([60, 64, 67], [5, 9, 0]), [60, 65, 69]);
+});
+
+test("chooseChord is deterministic for the same event log", () => {
+  const events = [
+    { kind: "press", beat: 1, degree: 4, velocity: 0.8 },
+    { kind: "answer", beat: 2, degree: 6, velocity: 0.45 },
+    { kind: "press", beat: 3, degree: 1, velocity: 0.7 },
+  ];
+  const sequence = () => [3.5, 7.5, 11.5].map((decisionBeat, index) => chooseChord({
+    scaleId: "ionian",
+    section: index === 0 ? "intro" : "a",
+    sectionBar: index + 1,
+    tension: 0.4,
+    memory: noteMemory(events, decisionBeat),
+  }));
+  assert.deepEqual(sequence(), sequence());
 });

@@ -1,22 +1,105 @@
 import {
-  bassGainForStep,
-  chordForBar,
+  approachDegree,
+  chordDegreeNotes,
+  chordMidiNotes,
   chordRootMidi,
+  chooseChord,
   decayTension,
+  getScale,
   getWorld,
   hatForStep,
   hatSwingSeconds,
   kickForStep,
+  noteMemory,
   reverbSendFromSilence,
   resolveScaleId,
   sectionForBar,
   snareForStep,
   tonicChordForScale,
+  voiceLead,
 } from "./gravity.mjs";
 import { createSynth } from "./synth.js";
 
 function rootMidiForChord(worldId, scaleId, chordName) {
   return chordRootMidi(worldId, scaleId, chordName, 2);
+}
+
+function tensionAtBeat(events, beat) {
+  const latest = events
+    .filter((event) => event.kind === "press" && event.beat <= beat && Number.isFinite(event.tAfter))
+    .at(-1);
+  return latest ? decayTension(latest.tAfter, beat - latest.beat) : 0;
+}
+
+function repeatedTail(entries, chordName) {
+  let count = 0;
+  for (let index = entries.length - 1; index >= 0 && entries[index].chordName === chordName; index -= 1) count += 1;
+  return count;
+}
+
+function voicingForChord(worldId, scaleId, chordName, previousVoices) {
+  const pitchClasses = chordMidiNotes(worldId, scaleId, chordName)
+    .map((midi) => midi % 12);
+  return voiceLead(previousVoices, pitchClasses);
+}
+
+export function accompanimentPlan(log) {
+  const world = getWorld(log.worldId);
+  const scaleId = resolveScaleId(log.worldId, log.scaleId);
+  const events = [...log.events].sort((left, right) => left.beat - right.beat);
+  const tonic = tonicChordForScale(scaleId);
+  const entries = [{
+    barIndex: 0,
+    decisionBeat: null,
+    chordName: tonic,
+    voices: voicingForChord(log.worldId, scaleId, tonic),
+  }];
+  for (let barIndex = 1; barIndex < log.bars; barIndex += 1) {
+    const decisionBeat = barIndex * 4 - 0.5;
+    const previous = entries.at(-1);
+    const resolution = events.some((event) => (
+      event.kind === "press"
+      && event.resolution === true
+      && event.beat >= (barIndex - 1) * 4
+      && event.beat <= decisionBeat
+    ));
+    const chordName = chooseChord({
+      scaleId,
+      section: sectionForBar(barIndex),
+      sectionBar: barIndex % 4,
+      tension: tensionAtBeat(events, decisionBeat),
+      memory: noteMemory(events, decisionBeat),
+      previousChord: previous.chordName,
+      repeatCount: repeatedTail(entries, previous.chordName),
+      previousVoices: previous.voices,
+      tonicPitchClass: world.rootMidi % 12,
+      resolution,
+    });
+    entries.push({
+      barIndex,
+      decisionBeat,
+      chordName,
+      voices: voicingForChord(log.worldId, scaleId, chordName, previous.voices),
+    });
+  }
+  return entries;
+}
+
+function bassChordNotes(worldId, scaleId, chordName) {
+  const root = rootMidiForChord(worldId, scaleId, chordName);
+  let previous = root - 1;
+  return chordMidiNotes(worldId, scaleId, chordName).map((midi) => {
+    let candidate = midi % 12;
+    while (candidate <= previous) candidate += 12;
+    previous = candidate;
+    return candidate;
+  });
+}
+
+function nearestMidiForPitchClass(pitchClass, reference) {
+  const center = pitchClass + Math.floor(reference / 12) * 12;
+  return [center - 12, center, center + 12]
+    .sort((left, right) => Math.abs(left - reference) - Math.abs(right - reference) || left - right)[0];
 }
 
 export function partitionEventsByBar(events, bars, beatsPerBar = 4) {
@@ -35,16 +118,20 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
   const beatSec = 60 / bpm;
   const bars = log.bars;
   const events = [...log.events].sort((left, right) => left.beat - right.beat);
+  const chordPlan = accompanimentPlan(log);
   const includesBeat = (beat) => beat >= fromBeat && beat < toBeat;
   let eventIndex = 0;
   let tension = 0;
   let lastTensionBeat = 0;
   let lastPressBeat = 0;
   let chordName = tonicChordForScale(scaleId);
+  let padVoices = chordPlan[0].voices;
   let pendingResolutionBeat = Infinity;
   let resolutionReverbUntilBeat = -Infinity;
 
-  partitionEventsByBar(events, bars).flat().filter((event) => includesBeat(event.beat) && (event.kind ?? "press") === "press").forEach((event) => {
+  partitionEventsByBar(events, bars).flat().filter((event) => (
+    includesBeat(event.beat) && ["press", "answer"].includes(event.kind ?? "press")
+  )).forEach((event) => {
     synth.scheduleLead(
       event,
       startTime + event.time,
@@ -78,12 +165,13 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     if (stepInBar === 0) {
       tension = decayTension(tension, beat - lastTensionBeat);
       lastTensionBeat = beat;
-      chordName = resolving
-        ? tonicChordForScale(scaleId)
-        : chordForBar(scaleId, barIndex, tension);
+      chordName = resolving ? tonicChordForScale(scaleId) : chordPlan[barIndex].chordName;
+      padVoices = resolving
+        ? voicingForChord(log.worldId, scaleId, chordName, padVoices)
+        : chordPlan[barIndex].voices;
       if (schedulesStep) {
         synth.schedulePad(chordName, startTime + beat * beatSec, beatSec * 4, tension, {
-          octaveLayer: section === "b",
+          voices: padVoices,
         });
       }
     }
@@ -97,8 +185,9 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
 
     if (resolving) {
       chordName = tonicChordForScale(scaleId);
+      padVoices = voicingForChord(log.worldId, scaleId, chordName, padVoices);
       if (schedulesStep) {
-        if (stepInBar !== 0) synth.schedulePad(chordName, when, beatSec * (4 - (beat % 4)), tension);
+        if (stepInBar !== 0) synth.schedulePad(chordName, when, beatSec * (4 - (beat % 4)), tension, { voices: padVoices });
         synth.scheduleResolution(world.rootMidi, when);
       }
       pendingResolutionBeat = Infinity;
@@ -107,9 +196,23 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
 
     if (!schedulesStep) continue;
     if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
-    const bassGain = bassGainForStep(log.worldId, section, stepInBar);
-    if (bassGain !== null) {
-      synth.scheduleBass(rootMidiForChord(log.worldId, scaleId, chordName), when, beatSec * 0.45, bassGain);
+    const bassNotes = bassChordNotes(log.worldId, scaleId, chordName);
+    const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
+    const thirdBeatBass = currentTension >= 0.3 ? bassNotes[0] + 12 : fifth;
+    if (stepInBar === 0) {
+      synth.scheduleBass(bassNotes[0], when, 0.28, 0.9);
+    } else if (stepInBar === 8) {
+      synth.scheduleBass(thirdBeatBass, when, 0.28, 0.75);
+      if (section === "b") {
+        synth.schedulePad(chordName, when, beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
+      }
+    } else if (stepInBar === 14) {
+      const nextChord = chordPlan[barIndex + 1]?.chordName ?? tonicChordForScale(scaleId);
+      const nextRootDegree = chordDegreeNotes(scaleId, nextChord)[0];
+      const nextRootSemitone = getScale(scaleId).intervals[nextRootDegree - 1];
+      const approach = approachDegree(nextRootSemitone, getScale(scaleId));
+      const approachPitchClass = (world.rootMidi + approach) % 12;
+      synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
     }
     if (snareForStep(section, stepInBar)) {
       synth.scheduleSnare(when);

@@ -2,14 +2,16 @@ import {
   accentForBeat,
   answerDegree,
   chordDegreeNotes,
-  chordForBar,
+  chordMidiNotes,
   chordToneWeight,
+  chooseChord,
   decayTension,
   getWorld,
   getScale,
   hashSeed,
   isResolution,
   midiForDegree,
+  noteMemory,
   mulberry32,
   noteLengthFromInterval,
   quantize as quantizeTime,
@@ -19,6 +21,7 @@ import {
   tonicChordForScale,
   updateTension,
   velocityFromInterval,
+  voiceLead,
 } from "../prototype/gravity.mjs";
 
 const BEATS_PER_BAR = 4;
@@ -179,6 +182,9 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
   let lastRawCatchTime = -Infinity;
   let lastPressEvent;
   let currentChord = tonicChordForScale(scaleId);
+  let nextChord = currentChord;
+  let padVoices;
+  const chordHistory = [];
   let pendingResolutionBeat = Infinity;
   let answerCount = 0;
   let motionIndex = 0;
@@ -268,7 +274,10 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
       if (stepInBar === 0) {
         tension = decayTension(tension, beat - lastTensionBeat);
         lastTensionBeat = beat;
-        currentChord = resolving ? tonicChordForScale(scaleId) : chordForBar(scaleId, barIndex, tension);
+        currentChord = resolving || barIndex === 0 ? tonicChordForScale(scaleId) : nextChord;
+        const pitchClasses = chordMidiNotes(worldId, scaleId, currentChord).map((midi) => midi % 12);
+        padVoices = voiceLead(padVoices, pitchClasses);
+        chordHistory.push(currentChord);
       }
     }
 
@@ -306,6 +315,32 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
     }
   };
 
+  const commitNextChord = (step) => {
+    const beat = step / STEPS_PER_BEAT;
+    const barIndex = Math.floor(step / (STEPS_PER_BEAT * BEATS_PER_BAR));
+    if (step % (STEPS_PER_BEAT * BEATS_PER_BAR) !== 14 || barIndex + 1 >= bars) return;
+    let repeatCount = 0;
+    for (let index = chordHistory.length - 1; index >= 0 && chordHistory[index] === currentChord; index -= 1) repeatCount += 1;
+    const resolution = events.some((event) => (
+      event.kind === "press"
+      && event.resolution === true
+      && event.beat >= barIndex * BEATS_PER_BAR
+      && event.beat <= beat
+    ));
+    nextChord = chooseChord({
+      scaleId,
+      section: sectionForBar(barIndex + 1),
+      sectionBar: (barIndex + 1) % BEATS_PER_BAR,
+      tension: decayTension(tension, beat - lastTensionBeat),
+      memory: noteMemory(events, beat),
+      previousChord: currentChord,
+      repeatCount,
+      previousVoices: padVoices,
+      tonicPitchClass: world.rootMidi % 12,
+      resolution,
+    });
+  };
+
   const finalStep = bars * BEATS_PER_BAR * STEPS_PER_BEAT;
   for (let step = 0; step <= finalStep; step += 1) {
     const stepBeat = step / STEPS_PER_BEAT;
@@ -316,6 +351,7 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
     while (motionIndex < motionEvents.length && motionEvents[motionIndex].beat <= stepBeat + EPSILON) {
       processMotion(motionEvents[motionIndex++]);
     }
+    commitNextChord(step);
   }
   while (motionIndex < motionEvents.length) processMotion(motionEvents[motionIndex++]);
 
@@ -324,6 +360,7 @@ export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed,
     .map(({ _order, ...event }) => event);
   return {
     version: "gravity-v0",
+    engine: "accomp-v2",
     worldId,
     scaleId,
     seed: normalizedSeed,

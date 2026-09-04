@@ -1,11 +1,12 @@
 import {
   accentForBeat,
   answerDegree,
-  bassGainForStep,
+  approachDegree,
   chordDegreeNotes,
-  chordForBar,
+  chordMidiNotes,
   chordRootMidi,
   chordToneWeight,
+  chooseChord,
   createLayout,
   decayTension,
   getScale,
@@ -15,6 +16,7 @@ import {
   isResolution,
   kickForStep,
   midiForDegree,
+  noteMemory,
   noteLengthFromInterval,
   quantize,
   reverbSendFromSilence,
@@ -25,6 +27,7 @@ import {
   tonicChordForScale,
   updateTension,
   velocityFromInterval,
+  voiceLead,
 } from "../prototype/gravity.mjs";
 import { downloadTakeJson, scheduleRecordedTake } from "../prototype/render.js";
 import { createSynth } from "../prototype/synth.js";
@@ -76,6 +79,7 @@ const elements = {
   json: document.querySelector("#json"),
   keyboard: document.querySelector("#keyboard"),
   primary: document.querySelector("#primary-action"),
+  performanceTip: document.querySelector("#performance-tip"),
   quantize: document.querySelector("#quantize"),
   reroll: document.querySelector("#reroll"),
   retake: document.querySelector("#retake"),
@@ -126,6 +130,9 @@ let lastTensionBeat = 0;
 let lastPressBeat = 0;
 let lastPhysicalPressTime = -Infinity;
 let currentChord = "I";
+let nextChord = "I";
+let padVoices;
+let chordHistory = [];
 let pendingResolutionBeat = Infinity;
 let resolutionReverbUntilBeat = -Infinity;
 let lastPressEvent;
@@ -272,6 +279,8 @@ function renderState() {
   const finished = state === "finished";
   const panelVisible = finished || state === "replay";
   elements.finishedPanel.hidden = !panelVisible;
+  elements.performanceTip.hidden = state !== "idle";
+  document.body.dataset.state = state;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
   [elements.world, elements.scale, elements.quantize, elements.seed, elements.reroll]
     .forEach((control) => { control.disabled = nextTakeSettingsDisabledForState(state); });
@@ -329,6 +338,56 @@ function rootMidiForChord(worldId, scaleId, chordName) {
   return chordRootMidi(worldId, scaleId, chordName, 2);
 }
 
+function voicingForChord(chordName, previousVoices) {
+  const pitchClasses = chordMidiNotes(layout.worldId, layout.scaleId, chordName).map((midi) => midi % 12);
+  return voiceLead(previousVoices, pitchClasses);
+}
+
+function bassChordNotes(chordName) {
+  const root = rootMidiForChord(layout.worldId, layout.scaleId, chordName);
+  let previous = root - 1;
+  return chordMidiNotes(layout.worldId, layout.scaleId, chordName).map((midi) => {
+    let candidate = midi % 12;
+    while (candidate <= previous) candidate += 12;
+    previous = candidate;
+    return candidate;
+  });
+}
+
+function nearestMidiForPitchClass(pitchClass, reference) {
+  const center = pitchClass + Math.floor(reference / 12) * 12;
+  return [center - 12, center, center + 12]
+    .sort((left, right) => Math.abs(left - reference) - Math.abs(right - reference) || left - right)[0];
+}
+
+function repeatedChordCount(chordName) {
+  let count = 0;
+  for (let index = chordHistory.length - 1; index >= 0 && chordHistory[index] === chordName; index -= 1) count += 1;
+  return count;
+}
+
+function chooseNextChord(barIndex, decisionBeat, currentTension) {
+  const targetBar = barIndex + 1;
+  const resolution = takeLog.events.some((event) => (
+    event.kind === "press"
+    && event.resolution === true
+    && event.beat >= barIndex * PERFORMANCE.beatsPerBar
+    && event.beat <= decisionBeat
+  ));
+  return chooseChord({
+    scaleId: layout.scaleId,
+    section: sectionForBar(targetBar),
+    sectionBar: targetBar % PERFORMANCE.beatsPerBar,
+    tension: currentTension,
+    memory: noteMemory(takeLog.events, decisionBeat),
+    previousChord: currentChord,
+    repeatCount: repeatedChordCount(currentChord),
+    previousVoices: padVoices,
+    tonicPitchClass: getWorld(layout.worldId).rootMidi % 12,
+    resolution,
+  });
+}
+
 function scheduleAnswerAtBoundary(beat, when, section) {
   if (beat === 0 || beat % 8 !== 0 || answerCount >= 8 || !lastPressEvent) return;
   if (lastPressEvent.beat < beat - 1 || lastPressEvent.beat >= beat || lastPressEvent.role === "stable") return;
@@ -376,8 +435,10 @@ function scheduleAccompanimentStep(step) {
   if (stepInBar === 0) {
     tension = decayTension(tension, beat - lastTensionBeat);
     lastTensionBeat = beat;
-    currentChord = resolving ? tonicChordForScale(layout.scaleId) : chordForBar(layout.scaleId, barIndex, tension);
-    synth.schedulePad(currentChord, when, synth.beatSec * PERFORMANCE.beatsPerBar, tension, { octaveLayer: section === "b" });
+    currentChord = resolving || barIndex === 0 ? tonicChordForScale(layout.scaleId) : nextChord;
+    padVoices = voicingForChord(currentChord, padVoices);
+    chordHistory.push(currentChord);
+    synth.schedulePad(currentChord, when, synth.beatSec * PERFORMANCE.beatsPerBar, tension, { voices: padVoices });
   }
 
   scheduleAnswerAtBoundary(beat, when, section);
@@ -387,7 +448,8 @@ function scheduleAccompanimentStep(step) {
 
   if (resolving) {
     currentChord = tonicChordForScale(layout.scaleId);
-    if (stepInBar !== 0) synth.schedulePad(currentChord, when, synth.beatSec * (PERFORMANCE.beatsPerBar - (beat % PERFORMANCE.beatsPerBar)), tension);
+    padVoices = voicingForChord(currentChord, padVoices);
+    if (stepInBar !== 0) synth.schedulePad(currentChord, when, synth.beatSec * (PERFORMANCE.beatsPerBar - (beat % PERFORMANCE.beatsPerBar)), tension, { voices: padVoices });
     synth.scheduleResolution(world.rootMidi, when);
     pendingResolutionBeat = Infinity;
     resolutionReverbUntilBeat = beat + 2;
@@ -399,8 +461,25 @@ function scheduleAccompanimentStep(step) {
   }
 
   if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
-  const bassGain = bassGainForStep(layout.worldId, section, stepInBar);
-  if (bassGain !== null) synth.scheduleBass(rootMidiForChord(layout.worldId, layout.scaleId, currentChord), when, synth.beatSec * 0.45, bassGain);
+  const bassNotes = bassChordNotes(currentChord);
+  const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
+  const thirdBeatBass = currentTension >= 0.3 ? bassNotes[0] + 12 : fifth;
+  if (stepInBar === 0) {
+    synth.scheduleBass(bassNotes[0], when, 0.28, 0.9);
+  } else if (stepInBar === 8) {
+    synth.scheduleBass(thirdBeatBass, when, 0.28, 0.75);
+    if (section === "b") {
+      synth.schedulePad(currentChord, when, synth.beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
+    }
+  } else if (stepInBar === 14) {
+    if (barIndex + 1 < PERFORMANCE.bars) nextChord = chooseNextChord(barIndex, beat, currentTension);
+    else nextChord = tonicChordForScale(layout.scaleId);
+    const nextRootDegree = chordDegreeNotes(layout.scaleId, nextChord)[0];
+    const nextRootSemitone = getScale(layout.scaleId).intervals[nextRootDegree - 1];
+    const approach = approachDegree(nextRootSemitone, getScale(layout.scaleId));
+    const approachPitchClass = (world.rootMidi + approach) % 12;
+    synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
+  }
   if (snareForStep(section, stepInBar)) synth.scheduleSnare(when);
   if ((section === "a" || section === "b") && silenceBeats < 8) {
     const hat = hatForStep(currentTension, stepInBar);
@@ -419,6 +498,8 @@ function scheduleAhead() {
   while (nextStep <= finalStep) {
     const stepTime = takeStart + (nextStep / PERFORMANCE.stepsPerBeat) * synth.beatSec;
     if (stepTime > audioContext.currentTime + PERFORMANCE.lookaheadSeconds) break;
+    const isChordDecision = nextStep % (PERFORMANCE.stepsPerBeat * PERFORMANCE.beatsPerBar) === 14;
+    if (isChordDecision && stepTime > audioContext.currentTime) break;
     scheduleAccompanimentStep(nextStep);
     nextStep += 1;
   }
@@ -465,11 +546,15 @@ async function beginTake(eventType) {
   lastPressEvent = undefined;
   answerCount = 0;
   currentChord = tonicChordForScale(layout.scaleId);
+  nextChord = currentChord;
+  padVoices = undefined;
+  chordHistory = [];
   pendingResolutionBeat = Infinity;
   resolutionReverbUntilBeat = -Infinity;
   nextStep = 0;
   takeLog = {
     version: "gravity-v0",
+    engine: "accomp-v2",
     worldId: layout.worldId,
     scaleId: layout.scaleId,
     seed: layout.seed,
@@ -722,6 +807,7 @@ function showError(error) {
 function normalizeLoadedLog(log) {
   return {
     ...log,
+    engine: "accomp-v2",
     scaleId: resolveScaleId(log.worldId, log.scaleId),
     events: log.events.map((event) => ({
       ...event,

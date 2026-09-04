@@ -65,13 +65,13 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) 
     });
   }
 
-  function schedulePad(chordName, when, duration) {
-    chordMidiNotes(worldId, scaleId, chordName, -1).forEach((midi) => {
-      note(tracks.pad, "pad", midi, when, duration, 1);
+  function schedulePad(chordName, when, duration, _tension, options = {}) {
+    (options.voices ?? chordMidiNotes(worldId, scaleId, chordName, -1)).forEach((midi) => {
+      note(tracks.pad, "pad", midi, when, duration, options.gainScale ?? 1);
     });
   }
 
-  function scheduleBass(midi, when, duration = beatSec * 0.45, gainScale = 1) {
+  function scheduleBass(midi, when, duration = 0.28, gainScale = 1) {
     note(tracks.bass, "bass", midi, when, duration, gainScale);
   }
 
