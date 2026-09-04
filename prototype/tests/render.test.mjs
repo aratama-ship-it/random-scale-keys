@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { accompanimentPlan, partitionEventsByBar, scheduleRecordedTake } from "../render.js";
-import { SCALES } from "../gravity.mjs";
+import { SCALES, SFX_KEYS, sfxNoiseSeed } from "../gravity.mjs";
+import { createSfxNoiseData } from "../synth.js";
 
 test("partitionEventsByBar assigns boundary events exactly once, including the ending interval", () => {
   const events = [
@@ -27,6 +28,7 @@ function sampleLog(bars = 2) {
   return {
     worldId: "daylight",
     scaleId: "ionian",
+    seed: 42,
     bpm: 100,
     bars,
     events: [
@@ -36,7 +38,7 @@ function sampleLog(bars = 2) {
 }
 
 function recordingSynth() {
-  const calls = { lead: [], pad: [], bass: [], snare: [], hat: [] };
+  const calls = { lead: [], pad: [], bass: [], snare: [], hat: [], sfx: [] };
   return {
     beatSec: 0.6,
     calls,
@@ -46,11 +48,28 @@ function recordingSynth() {
     scheduleKick: () => {},
     scheduleSnare: (...args) => calls.snare.push(args),
     scheduleHat: (...args) => calls.hat.push(args),
+    scheduleSfx: (...args) => calls.sfx.push(args),
     scheduleResolution: () => {},
     scheduleEnding: () => {},
     setReverbSend: () => {},
   };
 }
+
+test("SFX keys cover all ten digits and use four deterministic types", () => {
+  assert.equal(Object.keys(SFX_KEYS).length, 10);
+  assert.deepEqual(new Set(Object.values(SFX_KEYS).map(({ type }) => type)), new Set(["impact", "zap", "glitch", "tapestop"]));
+  assert.equal(sfxNoiseSeed("take-a", 4), sfxNoiseSeed("take-a", 4));
+  assert.notEqual(sfxNoiseSeed("take-a", 4), sfxNoiseSeed("take-a", 4.25));
+});
+
+test("SFX noise data is identical for the same seed and gated deterministically", () => {
+  const first = createSfxNoiseData(1000, 0.03, 1234, 0.006);
+  const second = createSfxNoiseData(1000, 0.03, 1234, 0.006);
+  const different = createSfxNoiseData(1000, 0.03, 1235, 0.006);
+  assert.deepEqual(first, second);
+  assert.notDeepEqual(first, different);
+  assert.ok(first.slice(6, 12).every((sample) => sample === 0));
+});
 
 test("scheduleRecordedTake sends press and answer notes through the shared lead route", () => {
   const log = sampleLog();
@@ -68,6 +87,32 @@ test("scheduleRecordedTake sends one arpeggio press through one synth lead call"
   assert.equal(synth.calls.lead.length, 1);
   assert.equal(synth.calls.lead[0][0], log.events[0]);
   assert.equal(synth.calls.lead[0][4], "arpeggio");
+});
+
+test("scheduleRecordedTake routes logged SFX to the lead stem with its event seed", () => {
+  const log = sampleLog();
+  log.events.push({ kind: "sfx", beat: 3, time: 1.8, code: "Digit5", sfx: "zap", variant: 1, velocity: 0.7 });
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
+  assert.deepEqual(synth.calls.sfx.find(([type]) => type === "zap"), [
+    "zap", 1, 1.8, 0.7, { noiseSeed: sfxNoiseSeed(log.seed, 3), stemRole: "lead" },
+  ]);
+});
+
+test("automatic SFX occur only at the three arrivals and three cadence tails", () => {
+  const log = sampleLog(16);
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
+  const automatic = synth.calls.sfx.filter(([, , , , options]) => options.stemRole === "accomp");
+  const impacts = automatic.filter(([type]) => type === "impact");
+  const glitches = automatic.filter(([type]) => type === "glitch");
+  assert.deepEqual(impacts.map(([, variant, when]) => [variant, when]), [
+    [1, 16 * 0.6], [1, 32 * 0.6], [1, 48 * 0.6],
+  ]);
+  assert.deepEqual(glitches.map(([, variant, when]) => [variant, when]), [
+    [0, 15.75 * 0.6], [0, 31.75 * 0.6], [0, 47.75 * 0.6],
+  ]);
+  assert.ok(automatic.every(([, , when]) => ![0, 14, 15].includes(Math.floor((when / 0.6) / 4))));
 });
 
 test("accompanimentPlan commits the next bar chord at the last eighth-note position deterministically", () => {

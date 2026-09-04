@@ -292,6 +292,12 @@ body[data-high-tension="true"] .text-button { color: var(--text); }
 .key-floating { background: var(--role-floating); }
 .key-tension { background: var(--role-tension); }
 [data-world="night"] .key { color: var(--btn-text); }
+.key-sfx,
+[data-world="night"] .key-sfx {
+  border-color: var(--text-sub);
+  color: var(--text);
+  background: var(--bg);
+}
 .key.pressed { border-color: var(--text); transform: translateY(var(--press-shift)); }
 .key-degree { font-size: var(--fs-key); line-height: var(--lh-key); font-weight: var(--weight-semibold); }
 .key-meta { font-size: var(--fs-key-sub); line-height: var(--lh-key-sub); letter-spacing: var(--tracking-key-sub); }

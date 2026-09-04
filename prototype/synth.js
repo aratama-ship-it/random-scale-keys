@@ -14,6 +14,9 @@ const MIN_GAIN = 0.0001;
 const MASTER_INPUT_GAIN = 1.25;
 const LEAD_BUS_GAIN = 1.55;
 const ACCOMP_BUS_GAIN = 0.62;
+// SFX は専用バス。lead 用の 1.55 倍を掛けるとステムがクリップし、accomp 用でも到達小節のインパクトが目標を超えたため別定数（M10 実測で調整）
+const SFX_LEAD_BUS_GAIN = 0.6;
+const SFX_ACCOMP_BUS_GAIN = 0.3;
 const PAD_REVERB_MULTIPLIER = 1.2;
 
 function midiToFrequency(midi) {
@@ -71,6 +74,23 @@ function whiteNoiseBuffer(context, duration, random) {
   return buffer;
 }
 
+export function createSfxNoiseData(sampleRate, duration, noiseSeed, gateSeconds = 0) {
+  const random = mulberry32(noiseSeed ?? 1);
+  const data = new Float32Array(Math.ceil(sampleRate * duration));
+  const gateFrames = gateSeconds > 0 ? Math.max(1, Math.round(sampleRate * gateSeconds)) : 0;
+  for (let index = 0; index < data.length; index += 1) {
+    const gateOpen = gateFrames === 0 || Math.floor(index / gateFrames) % 2 === 0;
+    data[index] = gateOpen ? random() * 2 - 1 : 0;
+  }
+  return data;
+}
+
+function sfxNoiseBuffer(context, duration, noiseSeed, gateSeconds = 0) {
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  buffer.getChannelData(0).set(createSfxNoiseData(context.sampleRate, duration, noiseSeed, gateSeconds));
+  return buffer;
+}
+
 export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, destination = context.destination, seed = 1, stem = null }) {
   if (stem !== null && !["lead", "accomp", "fx"].includes(stem)) {
     throw new TypeError(`Unknown stem: ${stem}`);
@@ -93,6 +113,8 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   const padReverbSend = context.createGain();
   const leadBus = context.createGain();
   const accompBus = context.createGain();
+  const leadSfxBus = context.createGain();
+  const accompSfxBus = context.createGain();
   const clickBus = context.createGain();
   const leadDryOutput = context.createGain();
   const accompDryOutput = context.createGain();
@@ -150,6 +172,10 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   leadBus.connect(reverbInput);
   accompBus.gain.value = ACCOMP_BUS_GAIN;
   accompBus.connect(isStem ? accompDryOutput : master);
+  leadSfxBus.gain.value = SFX_LEAD_BUS_GAIN;
+  leadSfxBus.connect(isStem ? leadDryOutput : master);
+  accompSfxBus.gain.value = SFX_ACCOMP_BUS_GAIN;
+  accompSfxBus.connect(isStem ? accompDryOutput : master);
   clickBus.connect(accompDryOutput);
   leadDryOutput.connect(master);
   accompDryOutput.connect(master);
@@ -427,6 +453,143 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     source.stop(when + duration);
   }
 
+  function scheduleSfx(type, variant, when, velocity = 1, options = {}) {
+    const destinationNode = options.stemRole === "accomp" ? accompSfxBus : leadSfxBus;
+    const noiseSeed = options.noiseSeed ?? 1;
+
+    if (type === "impact") {
+      const settings = [
+        { f0: 55, f1: 30, duration: 0.30 },
+        { f0: 90, f1: 40, duration: 0.25 },
+        { f0: 140, f1: 60, duration: 0.18 },
+      ][variant];
+      if (!settings) throw new RangeError(`Unknown impact variant: ${variant}`);
+      const oscillator = context.createOscillator();
+      const oscillatorGain = context.createGain();
+      const noise = context.createBufferSource();
+      const noiseFilter = context.createBiquadFilter();
+      const noiseGain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(settings.f0, when);
+      oscillator.frequency.exponentialRampToValueAtTime(settings.f1, when + settings.duration);
+      const oscillatorPeak = Math.max(MIN_GAIN, 0.55 * velocity);
+      oscillatorGain.gain.setValueAtTime(oscillatorPeak, when);
+      oscillatorGain.gain.setValueAtTime(oscillatorPeak, when + settings.duration * 0.4);
+      oscillatorGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + settings.duration);
+      noise.buffer = sfxNoiseBuffer(context, 0.12, noiseSeed);
+      noiseFilter.type = "lowpass";
+      noiseFilter.frequency.value = 900;
+      noiseFilter.Q.value = 0.7;
+      noiseGain.gain.setValueAtTime(Math.max(MIN_GAIN, 0.22 * velocity), when);
+      noiseGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.12);
+      oscillator.connect(oscillatorGain);
+      oscillatorGain.connect(destinationNode);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(destinationNode);
+      duckForKick(when);
+      oscillator.start(when);
+      oscillator.stop(when + settings.duration + 0.02);
+      noise.start(when);
+      noise.stop(when + 0.14);
+      return;
+    }
+
+    if (type === "zap") {
+      const settings = [
+        { f0: 1800, f1: 200, duration: 0.15 },
+        { f0: 1200, f1: 120, duration: 0.22 },
+        { f0: 600, f1: 60, duration: 0.32 },
+      ][variant];
+      if (!settings) throw new RangeError(`Unknown zap variant: ${variant}`);
+      const oscillator = context.createOscillator();
+      const filter = context.createBiquadFilter();
+      const gain = context.createGain();
+      oscillator.type = "sawtooth";
+      oscillator.frequency.setValueAtTime(settings.f0, when);
+      oscillator.frequency.exponentialRampToValueAtTime(settings.f1, when + settings.duration);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(3200, when);
+      filter.frequency.exponentialRampToValueAtTime(400, when + settings.duration);
+      filter.Q.value = 6;
+      gain.gain.setValueAtTime(MIN_GAIN, when);
+      gain.gain.exponentialRampToValueAtTime(Math.max(MIN_GAIN, 0.20 * velocity), when + 0.002);
+      gain.gain.setValueAtTime(Math.max(MIN_GAIN, 0.20 * velocity), Math.max(when + 0.002, when + settings.duration - 0.05));
+      gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + settings.duration);
+      oscillator.connect(filter);
+      filter.connect(gain);
+      gain.connect(destinationNode);
+      oscillator.start(when);
+      oscillator.stop(when + settings.duration + 0.02);
+      return;
+    }
+
+    if (type === "glitch") {
+      const duration = variant === 0 ? 0.06 : variant === 1 ? 0.18 : null;
+      if (duration === null) throw new RangeError(`Unknown glitch variant: ${variant}`);
+      const noise = context.createBufferSource();
+      const filter = context.createBiquadFilter();
+      const gain = context.createGain();
+      noise.buffer = sfxNoiseBuffer(context, duration, noiseSeed, 0.006);
+      filter.type = "bandpass";
+      filter.frequency.value = 2500;
+      filter.Q.value = 1;
+      gain.gain.value = 0.30 * velocity;
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(destinationNode);
+      noise.start(when);
+      noise.stop(when + duration + 0.02);
+      if (variant === 1) {
+        const oscillator = context.createOscillator();
+        const oscillatorGain = context.createGain();
+        oscillator.type = "square";
+        oscillator.frequency.setValueAtTime(200, when);
+        oscillator.frequency.exponentialRampToValueAtTime(50, when + duration);
+        oscillatorGain.gain.setValueAtTime(0.10 * velocity, when);
+        oscillatorGain.gain.linearRampToValueAtTime(0, when + duration);
+        oscillator.connect(oscillatorGain);
+        oscillatorGain.connect(destinationNode);
+        oscillator.start(when);
+        oscillator.stop(when + duration + 0.02);
+      }
+      return;
+    }
+
+    if (type === "tapestop") {
+      const duration = variant === 0 ? 0.5 : variant === 1 ? 1 : null;
+      if (duration === null) throw new RangeError(`Unknown tapestop variant: ${variant}`);
+      const filter = context.createBiquadFilter();
+      const gain = context.createGain();
+      const frequency = midiToFrequency(world.rootMidi);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(2200, when);
+      filter.frequency.exponentialRampToValueAtTime(250, when + duration);
+      filter.Q.value = 0.7;
+      gain.gain.setValueAtTime(0.22 * velocity, when);
+      gain.gain.linearRampToValueAtTime(0, when + duration);
+      filter.connect(gain);
+      gain.connect(destinationNode);
+      [
+        { type: "sawtooth", frequency, detune: -7 },
+        { type: "sawtooth", frequency, detune: 7 },
+        { type: "sine", frequency: frequency / 2, detune: 0 },
+      ].forEach((settings) => {
+        const oscillator = context.createOscillator();
+        oscillator.type = settings.type;
+        oscillator.detune.value = settings.detune;
+        oscillator.frequency.setValueAtTime(settings.frequency, when);
+        oscillator.frequency.exponentialRampToValueAtTime(settings.frequency / 8, when + duration);
+        oscillator.connect(filter);
+        oscillator.start(when);
+        oscillator.stop(when + duration + 0.02);
+      });
+      return;
+    }
+
+    throw new RangeError(`Unknown SFX type: ${type}`);
+  }
+
   function scheduleClick(when, accented = false) {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
@@ -479,6 +642,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     scheduleKick,
     scheduleSnare,
     scheduleHat,
+    scheduleSfx,
     scheduleClick,
     scheduleResolution,
     scheduleEnding,

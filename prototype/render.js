@@ -1,4 +1,5 @@
 import {
+  automaticSfxForStep,
   approachDegree,
   chordMidiNotes,
   chordRootInterval,
@@ -17,6 +18,7 @@ import {
   reverbSendFromSilence,
   resolveScaleId,
   sectionForBar,
+  sfxNoiseSeed,
   snareForStep,
   tonicChordForScale,
   voiceLead,
@@ -147,6 +149,15 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     );
   });
 
+  partitionEventsByBar(events, bars).flat().filter((event) => (
+    includesBeat(event.beat) && event.kind === "sfx"
+  )).forEach((event) => {
+    synth.scheduleSfx(event.sfx, event.variant, startTime + event.time, event.velocity, {
+      noiseSeed: sfxNoiseSeed(log.seed, event.beat),
+      stemRole: "lead",
+    });
+  });
+
   for (let step = 0; step < bars * 16; step += 1) {
     const beat = step / 4;
     const barIndex = Math.floor(step / 16);
@@ -201,6 +212,12 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     }
 
     if (!schedulesStep) continue;
+    automaticSfxForStep(barIndex, stepInBar, currentTension).forEach(({ type, variant, velocity }) => {
+      synth.scheduleSfx(type, variant, when, velocity, {
+        noiseSeed: sfxNoiseSeed(log.seed, beat),
+        stemRole: "accomp",
+      });
+    });
     if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
     const bassNotes = bassChordNotes(log.worldId, scaleId, chordName);
     const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];

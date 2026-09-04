@@ -10,6 +10,18 @@ import { downloadBlob, scheduleRecordedTake } from "../prototype/render.js";
 import { exportTimestamp } from "./stems.js";
 
 export const PPQ = 480;
+export const SFX_MIDI_NOTES = Object.freeze({
+  impact: Object.freeze([36, 37, 38]),
+  zap: Object.freeze([40, 41, 42]),
+  glitch: Object.freeze([44, 45]),
+  tapestop: Object.freeze([47, 48]),
+});
+const SFX_DURATIONS = Object.freeze({
+  impact: Object.freeze([0.30, 0.25, 0.18]),
+  zap: Object.freeze([0.15, 0.22, 0.32]),
+  glitch: Object.freeze([0.06, 0.18]),
+  tapestop: Object.freeze([0.5, 1]),
+});
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
@@ -55,7 +67,7 @@ function note(track, trackName, midi, when, length, velocity) {
 export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) {
   const scaleId = resolveScaleId(worldId, requestedScaleId);
   const beatSec = 60 / bpm;
-  const tracks = { lead: [], pad: [], bass: [], drums: [] };
+  const tracks = { lead: [], pad: [], bass: [], sfx: [], drums: [] };
 
   function scheduleLead(source, when, length, velocity, effect = "none") {
     if (effect === "arpeggio" && Number.isInteger(source.degree)) {
@@ -95,6 +107,15 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) 
     note(tracks.drums, "drums", midi, when, beatSec / 4, velocity);
   }
 
+  function scheduleSfx(type, variant, when, velocity = 1) {
+    const midi = SFX_MIDI_NOTES[type]?.[variant];
+    const duration = SFX_DURATIONS[type]?.[variant];
+    if (!Number.isInteger(midi) || !Number.isFinite(duration)) {
+      throw new RangeError(`Unknown SFX: ${type} ${variant}`);
+    }
+    note(tracks.sfx, "sfx", midi, when, duration, velocity);
+  }
+
   function scheduleResolution(rootMidi, when) {
     note(tracks.bass, "bass", 24 + (rootMidi % 12), when, 0.4, 1);
   }
@@ -120,6 +141,7 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) 
     scheduleKick: (when) => scheduleDrum(36, when),
     scheduleSnare: (when) => scheduleDrum(38, when),
     scheduleHat: (when, open = false) => scheduleDrum(open ? 46 : 42, when),
+    scheduleSfx,
     scheduleClick: () => {},
     scheduleResolution,
     scheduleEnding,
@@ -167,6 +189,7 @@ export function createMidiFile(log) {
     trackChunk("lead", 0, recorder.tracks.lead, log.bpm),
     trackChunk("pad", 1, recorder.tracks.pad, log.bpm),
     trackChunk("bass", 2, recorder.tracks.bass, log.bpm),
+    trackChunk("sfx", 3, recorder.tracks.sfx, log.bpm),
     trackChunk("drums", 9, recorder.tracks.drums, log.bpm),
   ];
   return new Uint8Array([

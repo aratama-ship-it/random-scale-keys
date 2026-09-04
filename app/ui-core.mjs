@@ -141,13 +141,21 @@ export function validateTakeLog(value) {
   if (!Number.isInteger(value.bars) || value.bars <= 0) return { ok: false, reason: "bars が正の整数ではありません" };
   if (!value.quantize || typeof value.quantize !== "object" || Array.isArray(value.quantize)) return { ok: false, reason: "quantize オブジェクトがありません" };
   if (!Array.isArray(value.events)) return { ok: false, reason: "events 配列がありません" };
-  const required = ["time", "beat", "kind", "midi", "degree", "role", "velocity", "length"];
-  const invalidIndex = value.events.findIndex((event) => !event || typeof event !== "object" || required.some((key) => !(key in event)));
+  const requiredFor = (event) => event?.kind === "sfx"
+    ? ["time", "beat", "kind", "code", "sfx", "variant", "velocity"]
+    : ["time", "beat", "kind", "midi", "degree", "role", "velocity", "length"];
+  const invalidIndex = value.events.findIndex((event) => (
+    !event || typeof event !== "object" || requiredFor(event).some((key) => !(key in event))
+  ));
   if (invalidIndex !== -1) return { ok: false, reason: `events[${invalidIndex}] に必須項目がありません` };
   const invalidTypeIndex = value.events.findIndex((event) => (
-    !["time", "beat", "midi", "degree", "velocity", "length"].every((key) => typeof event[key] === "number" && Number.isFinite(event[key]))
-    || typeof event.kind !== "string"
-    || typeof event.role !== "string"
+    event.kind === "sfx"
+      ? !["time", "beat", "variant", "velocity"].every((key) => typeof event[key] === "number" && Number.isFinite(event[key]))
+        || typeof event.code !== "string"
+        || typeof event.sfx !== "string"
+      : !["time", "beat", "midi", "degree", "velocity", "length"].every((key) => typeof event[key] === "number" && Number.isFinite(event[key]))
+        || typeof event.kind !== "string"
+        || typeof event.role !== "string"
   ));
   if (invalidTypeIndex !== -1) return { ok: false, reason: `events[${invalidTypeIndex}] の項目型が正しくありません` };
   return { ok: true };

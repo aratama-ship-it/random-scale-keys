@@ -136,6 +136,18 @@ test("validateTakeLog accepts the contract and explains rejected logs", () => {
   assert.deepEqual(validateTakeLog(legacy), { ok: true });
 });
 
+test("validateTakeLog accepts SFX without note fields and rejects missing SFX fields", () => {
+  const sfxLog = validTakeLog();
+  sfxLog.events = [{ time: 0.6, beat: 1, kind: "sfx", code: "Digit4", sfx: "zap", variant: 0, velocity: 0.8 }];
+  assert.deepEqual(validateTakeLog(sfxLog), { ok: true });
+  const missingType = structuredClone(sfxLog);
+  delete missingType.events[0].sfx;
+  assert.match(validateTakeLog(missingType).reason, /必須項目/);
+  const missingVariant = structuredClone(sfxLog);
+  delete missingVariant.events[0].variant;
+  assert.match(validateTakeLog(missingVariant).reason, /必須項目/);
+});
+
 test("pressTracker retains the maximum after keys are released", () => {
   const tracker = pressTracker();
   tracker.add("KeyA");
@@ -148,14 +160,16 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.10.0 waiting screen includes the exact performance tip, arp legend, and cadence engine", async () => {
+test("v0.11.0 waiting screen includes the performance tip, SFX legend, and cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
-  assert.match(html, /random-scale-keys v0\.10\.0/);
+  assert.match(html, /random-scale-keys v0\.11\.0/);
   assert.match(html, /効果: dly \/ swp \/ oct \/ stt \/ arp \/ —/);
+  assert.match(html, /SFX: 1-3 imp \/ 4-6 zap \/ 7-8 glt \/ 9-0 tape/);
   assert.match(main, /arpeggio: "arp"/);
+  assert.match(main, /key\.className = "key key-sfx"/);
   assert.match(html, /コツ: 同じキー付近を続けて使うとループ感が出ます。展開したいときは使う位置を少しずつずらします。/);
   assert.match(main, /performanceTip\.hidden = state !== "idle"/);
-  assert.equal(main.match(/engine: "accomp-v3"/g)?.length, 2);
+  assert.equal(main.match(/engine: "accomp-v4"/g)?.length, 2);
   assert.match(main, /beat % 16 === 0 && beat > 0\s*\? 1\s*:/);
 });

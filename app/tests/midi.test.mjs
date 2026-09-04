@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createMidiFile, createMidiRecorder, midiVelocity, PPQ, secondsToTicks, vlq } from "../midi.js";
+import { scheduleRecordedTake } from "../../prototype/render.js";
 
 function sampleLog() {
   return {
@@ -31,17 +32,17 @@ test("vlq encodes MIDI variable-length quantities", () => {
   assert.deepEqual(vlq(480), [0x83, 0x60]);
 });
 
-test("SMF header and all five track chunks have valid lengths and endings", () => {
+test("SMF header and all six track chunks have valid lengths and endings", () => {
   const bytes = createMidiFile(sampleLog());
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   assert.equal(text(bytes, 0, 4), "MThd");
   assert.equal(view.getUint32(4), 6);
   assert.equal(view.getUint16(8), 1);
-  assert.equal(view.getUint16(10), 5);
+  assert.equal(view.getUint16(10), 6);
   assert.equal(view.getUint16(12), PPQ);
 
   let offset = 14;
-  for (let track = 0; track < 5; track += 1) {
+  for (let track = 0; track < 6; track += 1) {
     assert.equal(text(bytes, offset, 4), "MTrk");
     const length = uint32(bytes, offset + 4);
     const end = offset + 8 + length;
@@ -49,6 +50,24 @@ test("SMF header and all five track chunks have valid lengths and endings", () =
     offset = end;
   }
   assert.equal(offset, bytes.length);
+});
+
+test("logged and automatic SFX share the dedicated MIDI track", () => {
+  const log = sampleLog();
+  log.bars = 16;
+  log.events.push({ beat: 1, time: 0.6, kind: "sfx", code: "Digit0", sfx: "tapestop", variant: 1, velocity: 0.7 });
+  const recorder = createMidiRecorder(log);
+  scheduleRecordedTake(recorder.context, recorder, log, 0);
+  assert.equal(recorder.tracks.sfx.length, 7);
+  assert.deepEqual(recorder.tracks.sfx.find(({ when }) => when === 0.6), {
+    track: "sfx",
+    midi: 48,
+    when: 0.6,
+    length: 1,
+    velocity: midiVelocity(0.7),
+  });
+  assert.equal(recorder.tracks.sfx.filter(({ midi }) => midi === 37).length, 3);
+  assert.equal(recorder.tracks.sfx.filter(({ midi }) => midi === 44).length, 3);
 });
 
 test("tempo track contains BPM tempo and 4/4 time-signature metadata", () => {

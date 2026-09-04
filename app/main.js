@@ -1,6 +1,7 @@
 import {
   accentForBeat,
   answerDegree,
+  automaticSfxForStep,
   approachDegree,
   chordDegreeNotes,
   chordMidiNotes,
@@ -27,6 +28,9 @@ import {
   resolveScaleId,
   roleForDegree,
   sectionForBar,
+  SFX_KEYS,
+  SFX_LABELS,
+  sfxNoiseSeed,
   snareForStep,
   tonicChordForScale,
   updateTension,
@@ -63,6 +67,7 @@ const PERFORMANCE = Object.freeze({
   diagnosticDurationMs: 3000,
 });
 const KEY_ROWS = Object.freeze(["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
+const SFX_ROW = "1234567890";
 const ROLE_MARKS = Object.freeze({ stable: "●", floating: "◐", tension: "▲" });
 const EFFECT_LABELS = Object.freeze({ none: "—", delay: "dly", sweep: "swp", octave: "oct", stutter: "stt", arpeggio: "arp" });
 const FORM_TAGS = new Set(["INPUT", "SELECT", "TEXTAREA"]);
@@ -133,6 +138,7 @@ let tension = 0;
 let lastTensionBeat = 0;
 let lastPressBeat = 0;
 let lastPhysicalPressTime = -Infinity;
+let lastPhysicalSfxPressTime = -Infinity;
 let currentChord = "I";
 let nextChord = "I";
 let padVoices;
@@ -206,7 +212,7 @@ function updateContourGeometry() {
     });
   }
 
-  const sources = [...keyRects].map(([code, rect]) => ({
+  const sources = [...keyRects].filter(([code]) => Object.hasOwn(layout.keys, code)).map(([code, rect]) => ({
     x: rect.left + rect.width / 2,
     y: rect.top + rect.height / 2,
     role: layout.keys[code].role,
@@ -219,6 +225,25 @@ function updateContourGeometry() {
 function renderLayout() {
   elements.keyboard.replaceChildren();
   const keySize = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--key-size"));
+  const sfxRow = document.createElement("div");
+  sfxRow.className = "key-row";
+  sfxRow.style.marginLeft = "0";
+  for (const digit of SFX_ROW) {
+    const code = `Digit${digit}`;
+    const assignment = SFX_KEYS[code];
+    const key = document.createElement("button");
+    key.type = "button";
+    key.className = "key key-sfx";
+    key.dataset.code = code;
+    key.setAttribute("aria-label", `${digit}、SFX ${assignment.type} ${assignment.variant}`);
+    key.innerHTML = `<span class="key-degree">${digit}</span><span class="key-meta">${SFX_LABELS[assignment.type]}</span>`;
+    key.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      playSfx(code, "pointer");
+    });
+    sfxRow.append(key);
+  }
+  elements.keyboard.append(sfxRow);
   KEY_ROWS.forEach((letters, rowIndex) => {
     const row = document.createElement("div");
     row.className = "key-row";
@@ -468,6 +493,12 @@ function scheduleAccompanimentStep(step) {
     });
   }
 
+  automaticSfxForStep(barIndex, stepInBar, currentTension).forEach(({ type, variant, velocity }) => {
+    synth.scheduleSfx(type, variant, when, velocity, {
+      noiseSeed: sfxNoiseSeed(takeLog.seed, beat),
+      stemRole: "accomp",
+    });
+  });
   if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
   const bassNotes = bassChordNotes(currentChord);
   const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
@@ -554,6 +585,7 @@ async function beginTake(eventType) {
   lastTensionBeat = 0;
   lastPressBeat = 0;
   lastPhysicalPressTime = -Infinity;
+  lastPhysicalSfxPressTime = -Infinity;
   lastPressEvent = undefined;
   answerCount = 0;
   currentChord = tonicChordForScale(layout.scaleId);
@@ -565,7 +597,7 @@ async function beginTake(eventType) {
   nextStep = 0;
   takeLog = {
     version: "gravity-v0",
-    engine: "accomp-v3",
+    engine: "accomp-v4",
     worldId: layout.worldId,
     scaleId: layout.scaleId,
     seed: layout.seed,
@@ -598,6 +630,7 @@ async function stopTake() {
 }
 
 function codeForReplayEvent(event) {
+  if (event.kind === "sfx" && event.code && SFX_KEYS[event.code]) return event.code;
   if (event.code && layout.keys[event.code]) return event.code;
   return Object.keys(layout.keys).find((code) => {
     const assignment = layout.keys[code];
@@ -617,6 +650,16 @@ function scheduleReplayVisuals() {
       if (state !== "replay") return;
       if (event.kind === "answer") {
         showAnswer(event.degree);
+        return;
+      }
+      if (event.kind === "sfx") {
+        const code = codeForReplayEvent(event);
+        const rect = code ? keyRects.get(code) : undefined;
+        if (rect) terrain.press(rect, "sfx");
+        if (code) {
+          setKeyPressed(code, true);
+          setTimeout(() => setKeyPressed(code, false), cssDurationMs("--duration-press"));
+        }
         return;
       }
       if (event.kind !== "press") return;
@@ -742,6 +785,39 @@ function playCode(code, sourceId = "keyboard") {
   setTimeout(() => setKeyPressed(code, false), cssDurationMs("--duration-press"));
 }
 
+function playSfx(code, sourceId = "keyboard") {
+  const assignment = SFX_KEYS[code];
+  if (state !== "playing" || !audioContext || !assignment) return;
+  if (audioContext.currentTime < takeStart || audioContext.currentTime >= takeEnd) return;
+  const now = audioContext.currentTime;
+  const scheduledTime = takeLog.quantize.enabled
+    ? quantize(now, takeStart, synth.bpm, takeLog.quantize.division, 0.03)
+    : now;
+  const beat = (scheduledTime - takeStart) / synth.beatSec;
+  const velocity = velocityFromInterval(now - lastPhysicalSfxPressTime);
+  const section = sectionForBar(Math.floor(beat / PERFORMANCE.beatsPerBar));
+  lastPhysicalSfxPressTime = now;
+  synth.scheduleSfx(assignment.type, assignment.variant, scheduledTime, velocity, {
+    noiseSeed: sfxNoiseSeed(takeLog.seed, beat),
+    stemRole: "lead",
+  });
+  takeLog.events.push({
+    time: scheduledTime - takeStart,
+    beat,
+    kind: "sfx",
+    code,
+    sfx: assignment.type,
+    variant: assignment.variant,
+    velocity,
+    section,
+    sourceId,
+  });
+  const key = elements.keyboard.querySelector(`[data-code="${code}"]`);
+  if (key) terrain.press(key.getBoundingClientRect(), "sfx");
+  setKeyPressed(code, true);
+  setTimeout(() => setKeyPressed(code, false), cssDurationMs("--duration-press"));
+}
+
 function handleKeyDown(event) {
   if (diagnosticActive) {
     if (!event.repeat && event.code) diagnosticKeys.add(event.code);
@@ -759,7 +835,13 @@ function handleKeyDown(event) {
     }
     return;
   }
-  if (event.repeat || !layout?.keys[event.code]) return;
+  if (event.repeat) return;
+  if (SFX_KEYS[event.code] && state === "playing") {
+    event.preventDefault();
+    playSfx(event.code);
+    return;
+  }
+  if (!layout?.keys[event.code]) return;
   if (state === "playing") {
     event.preventDefault();
     playCode(event.code);
@@ -818,24 +900,36 @@ function showError(error) {
 function normalizeLoadedLog(log) {
   return {
     ...log,
-    engine: "accomp-v3",
+    engine: "accomp-v4",
     scaleId: resolveScaleId(log.worldId, log.scaleId),
-    events: log.events.map((event) => ({
-      ...event,
-      effect: typeof event.effect === "string" ? event.effect : "none",
-      tBefore: Number.isFinite(event.tBefore) ? event.tBefore : 0,
-      tAfter: Number.isFinite(event.tAfter) ? event.tAfter : 0,
-      resolution: event.resolution === true,
-      sourceId: typeof event.sourceId === "string" ? event.sourceId : "gravity",
-      section: typeof event.section === "string" ? event.section : sectionForBar(Math.floor(event.beat / PERFORMANCE.beatsPerBar)),
-    })),
+    events: log.events.map((event) => {
+      const section = typeof event.section === "string"
+        ? event.section
+        : sectionForBar(Math.floor(event.beat / PERFORMANCE.beatsPerBar));
+      if (event.kind === "sfx") {
+        return {
+          ...event,
+          sourceId: typeof event.sourceId === "string" ? event.sourceId : "keyboard",
+          section,
+        };
+      }
+      return {
+        ...event,
+        effect: typeof event.effect === "string" ? event.effect : "none",
+        tBefore: Number.isFinite(event.tBefore) ? event.tBefore : 0,
+        tAfter: Number.isFinite(event.tAfter) ? event.tAfter : 0,
+        resolution: event.resolution === true,
+        sourceId: typeof event.sourceId === "string" ? event.sourceId : "gravity",
+        section,
+      };
+    }),
   };
 }
 
 function audibleTakeLog(log) {
   return {
     ...log,
-    events: log.events.filter((event) => event.kind === "press" || event.kind === "answer"),
+    events: log.events.filter((event) => event.kind === "press" || event.kind === "answer" || event.kind === "sfx"),
   };
 }
 

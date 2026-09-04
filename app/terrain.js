@@ -116,7 +116,7 @@ export function createTerrain(canvas) {
       kind: "press",
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
-      color: cssColor(`--ink-${role}`),
+      color: cssColor(role === "sfx" ? "--text-sub" : `--ink-${role}`),
       startedAt: performance.now(),
     });
   }

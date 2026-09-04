@@ -60,7 +60,7 @@ test("sceneToEvents maps catches to presses, preserves releases only as log even
   assert.equal(right.midi, midiForDegree("daylight", "ionian", degrees["ball.B"], 0));
   assert.equal(left.midi, midiForDegree("daylight", "ionian", degrees["ball.A"], -1));
   assert.equal(log.scaleId, "ionian");
-  assert.equal(log.engine, "accomp-v3");
+  assert.equal(log.engine, "accomp-v4");
 });
 
 test("sceneToEvents loops to the take boundary without exceeding it", () => {

@@ -4,6 +4,19 @@ export const KEY_CODES = Object.freeze(
 
 export const EFFECT_COUNTS = Object.freeze({ none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
 export const ARPEGGIO_GAINS = Object.freeze([1, 0.85, 0.75]);
+export const SFX_KEYS = Object.freeze({
+  Digit1: Object.freeze({ type: "impact", variant: 0 }),
+  Digit2: Object.freeze({ type: "impact", variant: 1 }),
+  Digit3: Object.freeze({ type: "impact", variant: 2 }),
+  Digit4: Object.freeze({ type: "zap", variant: 0 }),
+  Digit5: Object.freeze({ type: "zap", variant: 1 }),
+  Digit6: Object.freeze({ type: "zap", variant: 2 }),
+  Digit7: Object.freeze({ type: "glitch", variant: 0 }),
+  Digit8: Object.freeze({ type: "glitch", variant: 1 }),
+  Digit9: Object.freeze({ type: "tapestop", variant: 0 }),
+  Digit0: Object.freeze({ type: "tapestop", variant: 1 }),
+});
+export const SFX_LABELS = Object.freeze({ impact: "imp", zap: "zap", glitch: "glt", tapestop: "tape" });
 
 export const WORLDS = Object.freeze({
   daylight: Object.freeze({
@@ -165,6 +178,10 @@ export function hashSeed(seed) {
     hash = Math.imul(hash, 0x01000193);
   }
   return hash >>> 0;
+}
+
+export function sfxNoiseSeed(logSeed, beat) {
+  return hashSeed(logSeed) + 101 + Math.round(beat * 1000);
 }
 
 export function mulberry32(seed) {
@@ -597,6 +614,19 @@ export function sectionForBar(barIndex) {
   if (barIndex < 15) return "outro";
   if (barIndex === 15) return "outro-last";
   return "end";
+}
+
+export function automaticSfxForStep(barIndex, stepInBar, currentTension) {
+  const section = sectionForBar(barIndex);
+  const role = phraseRole(section, barIndex % 4);
+  const arrival = barIndex > 0 && role === "arrival";
+  if (arrival && ["a", "b", "outro"].includes(section) && stepInBar === 0) {
+    return [{ type: "impact", variant: 1, velocity: 0.45 + 0.4 * currentTension }];
+  }
+  if (role === "cadence" && stepInBar === 15 && barIndex !== 14) {
+    return [{ type: "glitch", variant: 0, velocity: 0.35 }];
+  }
+  return [];
 }
 
 export function chordForBar(scaleOrWorldId, barIndex, tension) {

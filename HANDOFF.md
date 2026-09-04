@@ -9,7 +9,7 @@
 
 1. `apps/music-plugins/random-scale-keys/PROJECT_NOTES.md`（決定事項と検証ログの正本。末尾から遡ると速い）
 2. `apps/music-plugins/random-scale-keys/README.md`（起動方法・公開URL・トークンシート外の値）
-3. `apps/music-plugins/random-scale-keys/SPEC_M8.md` と `SPEC_M9.md`（直近の仕様。M1〜M7も同フォルダ）
+3. `apps/music-plugins/random-scale-keys/SPEC_M8.md`・`SPEC_M9.md`・`SPEC_M10.md`（直近の仕様。M1〜M7も同フォルダ）
 
 ### これは何か
 
@@ -20,9 +20,9 @@ PCキーボードのA〜Zにスケール音とエフェクトをランダムに�
 
 ### いまの状態（2026-09-04）
 
-- **app v0.10.0 を公開中**（M8: 五音音階は親7音階の三和音、4小節ごとに属→主で着く終止／M9: 1キーで3連符アルペジオの効果 arp）: https://aratama-ship-it.github.io/random-scale-keys/
+- **app v0.11.0 を公開中**（M8: 五音音階は親7音階の三和音、4小節ごとに属→主で着く終止／M9: 1キーで3連符アルペジオの効果 arp／M10: 数字キー0〜9のSFXと伴奏の自動SFX）: https://aratama-ship-it.github.io/random-scale-keys/
 - repo: https://github.com/aratama-ship-it/random-scale-keys （public、Pages=main/root）
-- M1〜M9 まで完了。M8（親音階ハーモニー＋4小節の終止）と M9（arpeggio 効果）を公開した直後で、**本人の試聴判定を待っている**状態
+- M1〜M10 まで完了。M8（親音階ハーモニー＋4小節の終止）・M9（arpeggio 効果）・M10（SFX）を公開した直後で、**本人の試聴判定を待っている**状態
 
 ### 直近の宿題（ここから始める）
 
