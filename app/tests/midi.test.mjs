@@ -125,7 +125,7 @@ test("recording synth expands lead effects and omits count-in clicks", () => {
   assert.equal(recorder.tracks.drums.length, 0);
 });
 
-test("recording synth writes an arpeggio as three scale-degree triplet notes", () => {
+test("recording synth writes an arpeggio as the root and its sixth", () => {
   const recorder = createMidiRecorder({ worldId: "daylight", scaleId: "ionian", bpm: 100 });
   recorder.scheduleLead({ midi: 60, degree: 1 }, 0, 0.3, 0.8, "arpeggio");
   const beatSec = 60 / 100;
@@ -133,8 +133,7 @@ test("recording synth writes an arpeggio as three scale-degree triplet notes", (
     midi, when, length, velocity,
   })), [
     { midi: 60, when: 0, length: Math.max(0.12, (beatSec / 3) * 0.9), velocity: midiVelocity(0.8) },
-    { midi: 64, when: beatSec / 3, length: Math.max(0.12, (beatSec / 3) * 0.9), velocity: midiVelocity(0.8 * 0.85) },
-    { midi: 67, when: 2 * beatSec / 3, length: Math.max(0.12, (beatSec / 3) * 0.9), velocity: midiVelocity(0.8 * 0.75) },
+    { midi: 69, when: beatSec / 3, length: Math.max(0.12, (beatSec / 3) * 0.9), velocity: midiVelocity(0.8 * 0.85) },
   ]);
 });
 

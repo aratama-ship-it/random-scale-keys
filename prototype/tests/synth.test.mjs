@@ -75,8 +75,10 @@ function mockContext() {
       const node = audioNode({
         frequency: param(),
         detune: param(),
-        start() {},
-        stop() {},
+        startedAt: null,
+        stoppedAt: null,
+        start(when) { this.startedAt = when ?? 0; },
+        stop(when) { this.stoppedAt = when ?? 0; },
       });
       oscillatorNodes.push(node);
       return node;
@@ -169,6 +171,29 @@ test("scheduleLead returns release handles only for hold-compatible effects", ()
   assert.ok(releasesAfterFirstCall.every(([, when]) => when === 1 + HOLD_MAX_SECONDS));
   handle.release(4);
   assert.equal(context.params.flatMap((param) => param.calls).filter(([kind]) => kind === "hold").length, releasesAfterFirstCall.length);
+});
+
+test("stutter and arpeggio close their envelopes even when hold is open", () => {
+  // 2026-09-04 の不具合: ハンドルを返さない効果を開いたエンベロープで鳴らすと release が呼ばれず
+  // HOLD_MAX_SECONDS 鳴り続けた（本人報告「サステインが無限ループのように残る」）
+  ["stutter", "arpeggio"].forEach((effect) => {
+    const context = mockContext();
+    const synth = createSynth(context, { worldId: "daylight", scaleId: "ionian", bpm: 100 });
+    const when = 1;
+    assert.equal(
+      synth.scheduleLead({ midi: 60, degree: 1 }, when, 0.3, 0.8, effect, 0, { hold: "open", timbre: "epiano" }),
+      null,
+      effect,
+    );
+    const stopTimes = context.oscillatorNodes
+      .map((node) => node.stoppedAt)
+      .filter((at) => Number.isFinite(at));
+    assert.ok(stopTimes.length > 0, effect);
+    assert.ok(
+      Math.max(...stopTimes) < when + HOLD_MAX_SECONDS,
+      `${effect} の発音が ${Math.max(...stopTimes)} 秒まで続く（release が呼ばれない効果なので length で閉じること）`,
+    );
+  });
 });
 
 test("all four lead timbres schedule without changing the effect contract", () => {

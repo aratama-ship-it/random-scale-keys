@@ -470,7 +470,11 @@ export function createSynth(context, {
     const envelope = { ...envelopes[timbre] };
     if (options.release !== undefined) envelope.release = options.release;
     const destinationNode = isStem && options.stemRole === "accomp" ? accompBus : leadBus;
-    const holdOpen = options.hold === "open";
+    // stutter／arpeggio は複数音を自動で並べるためハンドル（release）を返さない。
+    // ここで開いたエンベロープにすると release が呼ばれず HOLD_MAX_SECONDS 鳴り続けるので、常に length で閉じる
+    // （2026-09-04 本人報告「サステインが無限ループのように残る」の原因）
+    const supportsHold = effect !== "stutter" && effect !== "arpeggio";
+    const holdOpen = options.hold === "open" && supportsHold;
     const releases = [];
     let scheduledLength = length;
     const scheduleSingle = (time, gainScale = 1, midiOffset = 0) => {

@@ -1321,6 +1321,12 @@ elements.midi.addEventListener("click", () => {
 });
 window.addEventListener("keydown", handleKeyDown);
 window.addEventListener("keyup", handleKeyUp);
+// ウィンドウからフォーカスが外れると keyup が届かず、押しっぱなしの音が上限（16秒）まで残る。
+// 離脱時に保持中の音をすべて解放する（2026-09-04 サステイン残りの再発防止）
+window.addEventListener("blur", () => releaseAllHolds(audioContext?.currentTime));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) releaseAllHolds(audioContext?.currentTime);
+});
 window.addEventListener("resize", () => renderLayout());
 narrowScreen.addEventListener("change", renderState);
 

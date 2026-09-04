@@ -4,7 +4,8 @@ export const KEY_CODES = Object.freeze(
 export const KEY_NAMES = Object.freeze(["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"]);
 
 export const EFFECT_COUNTS = Object.freeze({ none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
-export const ARPEGGIO_GAINS = Object.freeze([1, 0.85, 0.75]);
+export const ARPEGGIO_GAINS = Object.freeze([1, 0.85]);
+const ARPEGGIO_SIXTH_SEMITONES = 9;
 export const LEAD_TIMBRES = Object.freeze(["epiano", "saw", "pluck", "bell"]);
 export const TIMBRE_LABELS = Object.freeze({
   epiano: "電気ピアノ",
@@ -409,13 +410,19 @@ export function arpeggioOffsets(scaleId, degree) {
   if (!Number.isInteger(degree) || degree < 1 || degree > count) {
     throw new RangeError(`Invalid scale degree: ${degree}`);
   }
+  // 本人決定（2026-09-04）: アルペジオは「1度と6度」の2音。6度は音程基準（押した音から9半音に最も近い音階音、
+  // 同距離は低い方）で選ぶ。7音階では度数 d+5 と一致し、五音音階でも6度らしい音が出る（M6 の音程基準と同じ考え方）
   const rootIndex = degree - 1;
-  return [0, 2, 4].map((degreeOffset) => {
-    const index = rootIndex + degreeOffset;
-    return scale.intervals[index % count]
-      + 12 * Math.floor(index / count)
-      - scale.intervals[rootIndex];
+  const rootInterval = scale.intervals[rootIndex];
+  const candidates = Array.from({ length: count }, (_, offset) => {
+    const index = rootIndex + offset + 1;
+    return scale.intervals[index % count] + 12 * Math.floor(index / count) - rootInterval;
   });
+  candidates.sort((left, right) => (
+    Math.abs(left - ARPEGGIO_SIXTH_SEMITONES) - Math.abs(right - ARPEGGIO_SIXTH_SEMITONES)
+    || left - right
+  ));
+  return [0, candidates[0]];
 }
 
 function triadForDegree(scaleId, degree) {

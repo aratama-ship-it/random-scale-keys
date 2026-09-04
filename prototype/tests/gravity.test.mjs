@@ -208,15 +208,23 @@ test("default-key createLayout preserves the full v0.13.0 assignment for seed 42
   assert.deepEqual(actual, expected);
 });
 
-test("arpeggioOffsets follows scale degrees across octave boundaries", () => {
-  assert.deepEqual(arpeggioOffsets("ionian", 1), [0, 4, 7]);
-  assert.deepEqual(arpeggioOffsets("ionian", 5), [0, 4, 7]);
-  assert.deepEqual(arpeggioOffsets("ionian", 7), [0, 3, 6]);
-  assert.deepEqual(arpeggioOffsets("major_pentatonic", 1), [0, 4, 9]);
-  assert.deepEqual(arpeggioOffsets("major_pentatonic", 5), [0, 5, 10]);
+test("arpeggioOffsets plays the root and an interval-based sixth", () => {
+  assert.deepEqual(arpeggioOffsets("ionian", 1), [0, 9]);
+  assert.deepEqual(arpeggioOffsets("ionian", 5), [0, 9]);
+  assert.deepEqual(arpeggioOffsets("ionian", 7), [0, 8]);
+  assert.deepEqual(arpeggioOffsets("major_pentatonic", 1), [0, 9]);
+  assert.deepEqual(arpeggioOffsets("major_pentatonic", 5), [0, 10]);
+  assert.deepEqual(arpeggioOffsets("hirajoshi", 1), [0, 8]);
+  Object.values(SCALES).forEach((scale) => {
+    for (let degree = 1; degree <= scale.intervals.length; degree += 1) {
+      const [root, sixth] = arpeggioOffsets(scale.id, degree);
+      assert.equal(root, 0, scale.id);
+      assert.ok(sixth >= 7 && sixth <= 10, `${scale.id} degree ${degree} → ${sixth}`);
+    }
+  });
   assert.throws(() => arpeggioOffsets("ionian", 0), RangeError);
   assert.throws(() => arpeggioOffsets("ionian", 8), RangeError);
-  assert.deepEqual(ARPEGGIO_GAINS, [1, 0.85, 0.75]);
+  assert.deepEqual(ARPEGGIO_GAINS, [1, 0.85]);
 });
 
 test("tension decays for eight beats before applying the role delta", () => {
