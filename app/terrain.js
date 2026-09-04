@@ -1,4 +1,4 @@
-import { lerpColor } from "./ui-core.mjs";
+import { fieldAt, lerpColor, marchingSquares, roleElevation } from "./ui-core.mjs";
 
 const VISUAL = Object.freeze({
   pressRadiusStart: 8,
@@ -9,6 +9,12 @@ const VISUAL = Object.freeze({
   bloomWhiteMix: 0.12,
   endingReturnMs: 1500,
   pressRiseFactor: 2,
+  drawingLineWidth: 1.5,
+  contourGridPx: 8,
+  contourSigmaFactor: 1.2,
+  contourFlatThreshold: 0.04,
+  contourLevels: Object.freeze([-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1]),
+  ridgeMinimum: 0.6,
 });
 
 function cssColor(name) {
@@ -17,6 +23,8 @@ function cssColor(name) {
 
 export function createTerrain(canvas) {
   const context = canvas.getContext("2d");
+  const contourCanvas = document.createElement("canvas");
+  const contourContext = contourCanvas.getContext("2d");
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let width = 0;
   let height = 0;
@@ -28,16 +36,63 @@ export function createTerrain(canvas) {
   let bloomStartedAt = -Infinity;
   let effects = [];
   let frame;
+  let pixelRatio = 1;
+  let contourSources = [];
+  let contourTop = 0;
+  let contourBottom = 0;
+
+  function numericToken(name) {
+    return Number.parseFloat(cssColor(name));
+  }
+
+  function rebuildContours() {
+    contourCanvas.width = Math.round(width * pixelRatio);
+    contourCanvas.height = Math.round(height * pixelRatio);
+    contourContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    contourContext.clearRect(0, 0, width, height);
+    if (!contourSources.length || contourBottom <= contourTop) return;
+
+    const cellSize = VISUAL.contourGridPx;
+    const cols = Math.ceil(width / cellSize) + 1;
+    const rows = Math.ceil((contourBottom - contourTop) / cellSize) + 1;
+    const sigma = numericToken("--key-size") * VISUAL.contourSigmaFactor;
+    const localSources = contourSources.map((source) => ({
+      x: source.x,
+      y: source.y - contourTop,
+      elevation: roleElevation(source.role),
+    }));
+    const grid = new Float64Array(cols * rows);
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        grid[row * cols + col] = fieldAt(col * cellSize, row * cellSize, localSources, sigma);
+      }
+    }
+
+    contourContext.lineWidth = numericToken("--contour-width");
+    VISUAL.contourLevels.forEach((level) => {
+      const ridge = level >= VISUAL.ridgeMinimum;
+      contourContext.beginPath();
+      marchingSquares(grid, cols, rows, level, cellSize, VISUAL.contourFlatThreshold).forEach(([start, end]) => {
+        contourContext.moveTo(start.x, start.y + contourTop);
+        contourContext.lineTo(end.x, end.y + contourTop);
+      });
+      contourContext.strokeStyle = cssColor(ridge ? "--ink-tension" : "--text");
+      contourContext.globalAlpha = numericToken(ridge ? "--contour-alpha-ridge" : "--contour-alpha");
+      contourContext.stroke();
+    });
+    contourContext.globalAlpha = 1;
+  }
 
   function resize() {
-    const ratio = window.devicePixelRatio || 1;
+    pixelRatio = window.devicePixelRatio || 1;
     width = window.innerWidth;
     height = window.innerHeight;
-    canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(height * ratio);
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    rebuildContours();
   }
 
   function duration(name) {
@@ -93,7 +148,7 @@ export function createTerrain(canvas) {
     context.arc(effect.x, effect.y - rise, radius, 0, Math.PI * 2);
     context.strokeStyle = effect.color;
     context.globalAlpha = 1 - progress;
-    context.lineWidth = 1.5;
+    context.lineWidth = VISUAL.drawingLineWidth;
     context.stroke();
     context.globalAlpha = 1;
     return progress < 1;
@@ -112,6 +167,7 @@ export function createTerrain(canvas) {
       }
       context.fillStyle = background;
       context.fillRect(0, 0, width, height);
+      context.drawImage(contourCanvas, 0, 0, width, height);
       effects = effects.filter((effect) => drawEffect(effect, now));
     }
     frame = requestAnimationFrame(draw);
@@ -120,6 +176,14 @@ export function createTerrain(canvas) {
   function setWorld() {
     tensionFrom = tensionTarget;
     displayedTension = tensionTarget;
+    rebuildContours();
+  }
+
+  function setContours(sources, { top, bottom }) {
+    contourSources = sources.map(({ x, y, role }) => ({ x, y, role }));
+    contourTop = Math.max(0, top);
+    contourBottom = Math.min(height, bottom);
+    rebuildContours();
   }
 
   function end() {
@@ -133,5 +197,5 @@ export function createTerrain(canvas) {
   resize();
   frame = requestAnimationFrame(draw);
 
-  return { answer, bloom, end, press, setTension, setWorld };
+  return { answer, bloom, end, press, setContours, setTension, setWorld };
 }

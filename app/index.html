@@ -6,7 +6,7 @@
   <meta name="description" content="PCキーボードのA〜Zで、ランダムなスケール配置を演奏するブラウザアプリ">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./style.css">
-  <title>random-scale-keys v0.4.0</title>
+  <title>random-scale-keys v0.5.0</title>
 </head>
 <body tabindex="-1">
   <canvas id="terrain" aria-hidden="true"></canvas>
@@ -14,7 +14,7 @@
 
   <main class="app-shell">
     <header class="topbar">
-      <p class="version">random-scale-keys v0.4.0</p>
+      <p class="version">random-scale-keys v0.5.0</p>
       <p class="take-status" aria-live="polite">
         <span id="status-world">世界 daylight</span>
         <span aria-hidden="true">／</span>
@@ -36,13 +36,13 @@
     <div id="content" class="content">
       <section class="performance" aria-label="キーボード地形">
         <form id="settings" class="settings">
-          <label>世界
+          <label class="performance-setting">世界
             <select id="world" name="world">
               <option value="daylight">daylight</option>
               <option value="night">night</option>
             </select>
           </label>
-          <label>クオンタイズ
+          <label class="performance-setting">クオンタイズ
             <select id="quantize" name="quantize">
               <option value="off">OFF</option>
               <option value="4">4分</option>
@@ -50,12 +50,22 @@
               <option value="16">16分</option>
             </select>
           </label>
-          <label>seed
-            <input id="seed" name="seed" autocomplete="off" spellcheck="false">
+          <label class="performance-setting">seed
+            <input id="seed" name="seed" type="number" inputmode="numeric" autocomplete="off" spellcheck="false">
           </label>
-          <button id="reroll" class="button button-secondary" type="button">振り直し</button>
+          <button id="reroll" class="button button-secondary performance-setting" type="button">振り直し</button>
+          <label class="button button-secondary file-button">JSONを読み込む
+            <input id="take-file" name="take-file" type="file" accept="application/json,.json">
+          </label>
+          <button id="diagnose" class="text-button performance-setting" type="button">同時押しを診断</button>
+          <p id="load-error" class="settings-feedback" aria-live="polite"></p>
         </form>
 
+        <section id="diagnostic-panel" class="diagnostic-panel" aria-label="同時押し診断" hidden>
+          <p id="diagnostic-message">3秒のあいだ、押せるだけ同時にキーを押してください</p>
+          <a id="diagnostic-note" href="../README.md#同時押しについて" hidden>同時押しの上限について</a>
+          <button id="diagnostic-close" class="text-button" type="button">閉じる</button>
+        </section>
         <div id="keyboard" class="keyboard" aria-label="AからZのキー配置"></div>
         <p class="legend"><span>● 安定</span><span>◐ 浮遊</span><span>▲ 緊張</span><span>効果: dly / swp / oct / stt / —</span></p>
         <p class="mobile-message">このアプリは物理キーボードで演奏します。PCで開いてください</p>
@@ -64,7 +74,9 @@
       <aside id="finished-panel" class="finished-panel" aria-labelledby="finished-title" hidden>
         <h1 id="finished-title">テイク完了</h1>
         <p id="take-summary"></p>
+        <p id="loaded-take" class="loaded-take" hidden></p>
         <div class="export-actions">
+          <button id="replay" class="button button-primary" type="button">再生</button>
           <button id="wav" class="button button-primary" type="button">WAVを書き出す</button>
           <button id="stems" class="button button-primary" type="button">ステム3本を書き出す</button>
           <button id="midi" class="button button-primary" type="button">MIDIを書き出す</button>

@@ -23,11 +23,11 @@ import {
   updateTension,
   velocityFromInterval,
 } from "../prototype/gravity.mjs";
-import { downloadTakeJson } from "../prototype/render.js";
+import { downloadTakeJson, scheduleRecordedTake } from "../prototype/render.js";
 import { createSynth } from "../prototype/synth.js";
 import { downloadTakeMidi } from "./midi.js";
 import { downloadMixWav, downloadStems } from "./stems.js";
-import { formatParams, parseParams, rowOffsetPx, transition } from "./ui-core.mjs";
+import { formatParams, parseParams, pressTracker, rowOffsetPx, transition, validateTakeLog } from "./ui-core.mjs";
 import { createTerrain } from "./terrain.js";
 
 const PERFORMANCE = Object.freeze({
@@ -39,6 +39,7 @@ const PERFORMANCE = Object.freeze({
   audioLeadSeconds: 0.08,
   audioTailSeconds: 4,
   answerVisibleMs: 1000,
+  diagnosticDurationMs: 3000,
 });
 const KEY_ROWS = Object.freeze(["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
 const ROLE_MARKS = Object.freeze({ stable: "●", floating: "◐", tension: "▲" });
@@ -50,6 +51,11 @@ const elements = {
   chord: document.querySelector("#chord"),
   content: document.querySelector("#content"),
   countin: document.querySelector("#countin"),
+  diagnose: document.querySelector("#diagnose"),
+  diagnosticClose: document.querySelector("#diagnostic-close"),
+  diagnosticMessage: document.querySelector("#diagnostic-message"),
+  diagnosticNote: document.querySelector("#diagnostic-note"),
+  diagnosticPanel: document.querySelector("#diagnostic-panel"),
   finishedPanel: document.querySelector("#finished-panel"),
   finishReroll: document.querySelector("#finish-reroll"),
   exportStatus: document.querySelector("#export-status"),
@@ -59,6 +65,7 @@ const elements = {
   quantize: document.querySelector("#quantize"),
   reroll: document.querySelector("#reroll"),
   retake: document.querySelector("#retake"),
+  replay: document.querySelector("#replay"),
   seed: document.querySelector("#seed"),
   settings: document.querySelector("#settings"),
   shareLink: document.querySelector("#share-link"),
@@ -68,6 +75,9 @@ const elements = {
   statusSeed: document.querySelector("#status-seed"),
   statusWorld: document.querySelector("#status-world"),
   takeSummary: document.querySelector("#take-summary"),
+  takeFile: document.querySelector("#take-file"),
+  loadError: document.querySelector("#load-error"),
+  loadedTake: document.querySelector("#loaded-take"),
   tensionFill: document.querySelector("#tension-fill"),
   stems: document.querySelector("#stems"),
   midi: document.querySelector("#midi"),
@@ -76,7 +86,7 @@ const elements = {
 };
 
 const terrain = createTerrain(document.querySelector("#terrain"));
-const narrowScreen = window.matchMedia("(max-width: 599.98px)");
+const narrowScreen = window.matchMedia("(max-width: 600px)");
 
 let state = "idle";
 let layout;
@@ -100,17 +110,22 @@ let resolutionReverbUntilBeat = -Infinity;
 let lastPressEvent;
 let answerCount = 0;
 let takeLog;
+let loadedTakeFilename = "";
+let diagnosticActive = false;
+let diagnosticKeys;
+let diagnosticTimer;
+const keyRects = new Map();
 
 function randomSeed() {
   const values = new Uint32Array(1);
   crypto.getRandomValues(values);
-  return values[0].toString(16).padStart(8, "0").slice(0, 6);
+  return values[0];
 }
 
 function normalizedSeed() {
   const raw = elements.seed.value.trim();
   if (!raw) return randomSeed();
-  return /^[+-]?\d+$/.test(raw) ? Number(raw) : raw;
+  return /^[+-]?\d+$/.test(raw) ? Number(raw) : randomSeed();
 }
 
 function selectedQuantize() {
@@ -120,6 +135,48 @@ function selectedQuantize() {
 
 function updateUrl() {
   history.replaceState(null, "", formatParams({ world: elements.world.value, seed: elements.seed.value }));
+}
+
+function cssNumber(name) {
+  return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+}
+
+function updateContourGeometry() {
+  if (!layout) return;
+  keyRects.clear();
+  const renderedKeys = [...elements.keyboard.querySelectorAll("[data-code]")];
+  const visibleKeys = renderedKeys.filter((key) => key.getBoundingClientRect().width > 0);
+
+  if (visibleKeys.length) {
+    visibleKeys.forEach((key) => keyRects.set(key.dataset.code, key.getBoundingClientRect()));
+  } else {
+    const keySize = cssNumber("--key-size");
+    const keyGap = cssNumber("--key-gap");
+    const bottom = window.innerHeight - cssNumber("--space-4");
+    const top = bottom - KEY_ROWS.length * keySize - (KEY_ROWS.length - 1) * keyGap;
+    const widestWidth = KEY_ROWS[0].length * keySize + (KEY_ROWS[0].length - 1) * keyGap;
+    KEY_ROWS.forEach((letters, rowIndex) => {
+      const rowLeft = (window.innerWidth - widestWidth) / 2 + rowOffsetPx(rowIndex, keySize);
+      const rowTop = top + rowIndex * (keySize + keyGap);
+      [...letters].forEach((letter, columnIndex) => {
+        keyRects.set(`Key${letter}`, {
+          left: rowLeft + columnIndex * (keySize + keyGap),
+          top: rowTop,
+          width: keySize,
+          height: keySize,
+        });
+      });
+    });
+  }
+
+  const sources = [...keyRects].map(([code, rect]) => ({
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+    role: layout.keys[code].role,
+  }));
+  const top = document.querySelector(".topbar").getBoundingClientRect().bottom;
+  const bottom = Math.max(top, ...[...keyRects.values()].map((rect) => rect.top + rect.height));
+  terrain.setContours(sources, { top, bottom });
 }
 
 function renderLayout() {
@@ -146,12 +203,14 @@ function renderLayout() {
     }
     elements.keyboard.append(row);
   });
+  requestAnimationFrame(updateContourGeometry);
 }
 
-function rebuildLayout({ replaceUrl = true } = {}) {
+function rebuildLayout({ replaceUrl = true, imported = false } = {}) {
   layout = createLayout(normalizedSeed(), elements.world.value);
   elements.seed.value = String(layout.seed);
   document.documentElement.dataset.world = layout.worldId;
+  document.body.dataset.imported = String(imported);
   currentChord = tonicChordForWorld(layout.worldId);
   terrain.setWorld();
   renderLayout();
@@ -182,13 +241,14 @@ async function closeAudio() {
 }
 
 function renderState() {
-  const active = state === "countin" || state === "playing";
+  const active = state === "countin" || state === "playing" || state === "replay";
   const finished = state === "finished";
-  elements.finishedPanel.hidden = !finished;
+  const panelVisible = finished || state === "replay";
+  elements.finishedPanel.hidden = !panelVisible;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
-  elements.primary.disabled = state === "idle" && narrowScreen.matches;
+  elements.primary.disabled = (state === "idle" || state === "finished") && narrowScreen.matches;
   elements.primary.textContent = active ? "停止 (Enter)" : finished ? "もう1テイク" : "演奏開始";
-  elements.statusLabel.textContent = state === "idle" ? "待機" : state === "countin" ? "カウントイン" : state === "playing" ? "演奏中" : "テイク完了";
+  elements.statusLabel.textContent = state === "idle" ? "待機" : state === "countin" ? "カウントイン" : state === "playing" ? "演奏中" : state === "replay" ? "再生中" : "テイク完了";
   elements.statusWorld.textContent = `世界 ${layout?.worldId ?? elements.world.value}`;
   elements.statusSeed.textContent = `seed ${layout?.seed ?? elements.seed.value}`;
   elements.statusPosition.textContent = active ? " 1/16小節" : "";
@@ -198,7 +258,11 @@ function renderState() {
     document.activeElement?.blur?.();
     document.body.focus({ preventScroll: true });
   }
-  if (finished && takeLog) updateFinishedPanel();
+  const panelButtons = [...exportButtons, elements.retake, elements.finishReroll, elements.replay];
+  panelButtons.forEach((button) => { button.disabled = state === "replay"; });
+  if (narrowScreen.matches) elements.retake.disabled = true;
+  if (panelVisible && takeLog) updateFinishedPanel();
+  requestAnimationFrame(updateContourGeometry);
 }
 
 function dispatch(type) {
@@ -207,9 +271,11 @@ function dispatch(type) {
 }
 
 function updateFinishedPanel() {
-  const seconds = PERFORMANCE.bars * PERFORMANCE.beatsPerBar * 60 / takeLog.bpm;
+  const seconds = takeLog.bars * PERFORMANCE.beatsPerBar * 60 / takeLog.bpm;
   const presses = takeLog.events.filter((event) => event.kind === "press").length;
-  elements.takeSummary.textContent = `${seconds.toFixed(1)}秒・${PERFORMANCE.bars}小節・打鍵 ${presses}`;
+  elements.takeSummary.textContent = `${seconds.toFixed(1)}秒・${takeLog.bars}小節・打鍵 ${presses}`;
+  elements.loadedTake.hidden = !loadedTakeFilename;
+  elements.loadedTake.textContent = loadedTakeFilename ? `読み込んだテイク: ${loadedTakeFilename}` : "";
   elements.shareLink.textContent = `共有リンク: ${formatParams({ world: takeLog.worldId, seed: takeLog.seed })}（配置だけを共有。テイクはWAV/JSONで）`;
 }
 
@@ -328,6 +394,11 @@ async function beginTake(eventType) {
   await closeAudio();
   elements.exportStatus.textContent = "";
   if (eventType === "START") rebuildLayout();
+  if (eventType === "RETAKE") {
+    loadedTakeFilename = "";
+    document.body.dataset.imported = "false";
+    renderLayout();
+  }
   const nextState = transition(state, eventType);
   const world = getWorld(layout.worldId);
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -354,7 +425,7 @@ async function beginTake(eventType) {
   resolutionReverbUntilBeat = -Infinity;
   nextStep = 0;
   takeLog = {
-    version: "gravity-v0.2",
+    version: "gravity-v0",
     worldId: layout.worldId,
     seed: layout.seed,
     bpm: world.bpm,
@@ -380,6 +451,80 @@ function markTakeFinished() {
 
 async function stopTake() {
   if (state !== "countin" && state !== "playing") return;
+  await closeAudio();
+  dispatch("STOP");
+  terrain.end();
+}
+
+function codeForReplayEvent(event) {
+  if (event.code && layout.keys[event.code]) return event.code;
+  return Object.keys(layout.keys).find((code) => {
+    const assignment = layout.keys[code];
+    return assignment.midi === event.midi && assignment.degree === event.degree;
+  });
+}
+
+function scheduleReplayVisuals() {
+  takeLog.events.forEach((event) => {
+    if (event.kind === "press" && event.resolution) {
+      const resolutionBeat = Math.floor(event.beat) + 1;
+      scheduleVisualAt(takeStart + resolutionBeat * synth.beatSec, () => {
+        if (state === "replay") terrain.bloom();
+      });
+    }
+    scheduleVisualAt(takeStart + event.time, () => {
+      if (state !== "replay") return;
+      if (event.kind === "answer") {
+        showAnswer(event.degree);
+        return;
+      }
+      if (event.kind !== "press") return;
+      const code = codeForReplayEvent(event);
+      const rect = code ? keyRects.get(code) : undefined;
+      if (rect) terrain.press(rect, event.role);
+      if (code) {
+        setKeyPressed(code, true);
+        setTimeout(() => setKeyPressed(code, false), cssDurationMs("--duration-press"));
+      }
+      tension = event.tAfter;
+      lastTensionBeat = event.beat;
+      terrain.setTension(tension);
+    });
+  });
+}
+
+function finishReplayNaturally() {
+  if (state !== "replay") return;
+  clearTimeout(finishTimer);
+  finishTimer = undefined;
+  dispatch("REPLAY_END");
+  terrain.end();
+  tailTimer = setTimeout(() => closeAudio().catch(showError), PERFORMANCE.audioTailSeconds * 1000);
+}
+
+async function beginReplay() {
+  if (state !== "finished" || !takeLog) return;
+  await closeAudio();
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) throw new Error("このブラウザはWeb Audio APIに対応していません");
+  audioContext = new AudioContextClass();
+  await audioContext.resume();
+  synth = createSynth(audioContext, { worldId: takeLog.worldId, bpm: takeLog.bpm, seed: takeLog.seed });
+  state = transition(state, "REPLAY");
+  takeStart = audioContext.currentTime + PERFORMANCE.audioLeadSeconds;
+  takeEnd = takeStart + takeLog.bars * PERFORMANCE.beatsPerBar * synth.beatSec;
+  tension = 0;
+  lastTensionBeat = 0;
+  currentChord = tonicChordForWorld(takeLog.worldId);
+  terrain.setTension(0);
+  scheduleRecordedTake(audioContext, synth, takeLog, takeStart);
+  scheduleReplayVisuals();
+  finishTimer = setTimeout(finishReplayNaturally, Math.max(0, (takeEnd - audioContext.currentTime) * 1000));
+  renderState();
+}
+
+async function stopReplay() {
+  if (state !== "replay") return;
   await closeAudio();
   dispatch("STOP");
   terrain.end();
@@ -451,11 +596,19 @@ function playCode(code, sourceId = "keyboard") {
 }
 
 function handleKeyDown(event) {
+  if (diagnosticActive) {
+    if (!event.repeat && event.code) diagnosticKeys.add(event.code);
+    event.preventDefault();
+    return;
+  }
   if (FORM_TAGS.has(document.activeElement?.tagName)) return;
   if (event.code === "Enter") {
     if (state === "countin" || state === "playing") {
       event.preventDefault();
       stopTake().catch(showError);
+    } else if (state === "replay") {
+      event.preventDefault();
+      stopReplay().catch(showError);
     }
     return;
   }
@@ -467,7 +620,7 @@ function handleKeyDown(event) {
 }
 
 function updateDisplay() {
-  if (audioContext && synth && (state === "countin" || state === "playing")) {
+  if (audioContext && synth && (state === "countin" || state === "playing" || state === "replay")) {
     const now = audioContext.currentTime;
     if (state === "countin") {
       const beatsLeft = Math.ceil((takeStart - now) / synth.beatSec);
@@ -478,14 +631,17 @@ function updateDisplay() {
     }
     if (now >= takeStart) {
       const beat = Math.max(0, Math.min(PERFORMANCE.bars * PERFORMANCE.beatsPerBar, (now - takeStart) / synth.beatSec));
-      const displayedTension = decayTension(tension, Math.max(0, beat - lastTensionBeat));
-      const bar = Math.min(PERFORMANCE.bars, Math.floor(beat / PERFORMANCE.beatsPerBar) + 1);
-      const section = sectionForBar(Math.min(PERFORMANCE.bars, Math.floor(beat / PERFORMANCE.beatsPerBar)));
-      elements.statusPosition.textContent = ` ${bar}/${PERFORMANCE.bars}小節`;
+      const replayBars = state === "replay" ? takeLog.bars : PERFORMANCE.bars;
+      const replayBeat = Math.max(0, Math.min(replayBars * PERFORMANCE.beatsPerBar, (now - takeStart) / synth.beatSec));
+      const shownBeat = state === "replay" ? replayBeat : beat;
+      const shownTension = decayTension(tension, Math.max(0, shownBeat - lastTensionBeat));
+      const shownBar = Math.min(replayBars, Math.floor(shownBeat / PERFORMANCE.beatsPerBar) + 1);
+      const section = sectionForBar(Math.min(replayBars, Math.floor(shownBeat / PERFORMANCE.beatsPerBar)));
+      elements.statusPosition.textContent = ` ${shownBar}/${replayBars}小節`;
       elements.statusSection.textContent = ` ${section === "outro-last" ? "outro" : section}`;
-      elements.tensionFill.style.width = `${displayedTension * 100}%`;
-      document.body.dataset.highTension = String(displayedTension >= 0.5);
-      terrain.setTension(displayedTension);
+      elements.tensionFill.style.width = `${shownTension * 100}%`;
+      document.body.dataset.highTension = String(shownTension >= 0.5);
+      terrain.setTension(shownTension);
     }
   } else {
     elements.countin.textContent = "";
@@ -501,6 +657,78 @@ function showError(error) {
   elements.statusLabel.textContent = `エラー: ${error.message}`;
 }
 
+function normalizeLoadedLog(log) {
+  return {
+    ...log,
+    events: log.events.map((event) => ({
+      ...event,
+      effect: typeof event.effect === "string" ? event.effect : "none",
+      tBefore: Number.isFinite(event.tBefore) ? event.tBefore : 0,
+      tAfter: Number.isFinite(event.tAfter) ? event.tAfter : 0,
+      resolution: event.resolution === true,
+      sourceId: typeof event.sourceId === "string" ? event.sourceId : "gravity",
+      section: typeof event.section === "string" ? event.section : sectionForBar(Math.floor(event.beat / PERFORMANCE.beatsPerBar)),
+    })),
+  };
+}
+
+async function loadTakeFile(file) {
+  elements.loadError.textContent = "";
+  try {
+    const parsed = JSON.parse(await file.text());
+    const validation = validateTakeLog(parsed);
+    if (!validation.ok) throw new Error(validation.reason);
+    takeLog = normalizeLoadedLog(parsed);
+    loadedTakeFilename = file.name;
+    elements.world.value = takeLog.worldId;
+    elements.seed.value = String(takeLog.seed);
+    const quantizeValue = takeLog.quantize.enabled
+      ? ({ 1: "4", 2: "8", 4: "16" }[takeLog.quantize.division] ?? "off")
+      : "off";
+    elements.quantize.value = quantizeValue;
+    state = "finished";
+    rebuildLayout({ imported: true });
+    elements.exportStatus.textContent = "";
+  } catch (error) {
+    elements.loadError.textContent = `読み込めませんでした（${error.message}）`;
+  } finally {
+    elements.takeFile.value = "";
+  }
+}
+
+function keyName(code) {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return code;
+}
+
+function finishDiagnostic() {
+  if (!diagnosticActive) return;
+  diagnosticActive = false;
+  const names = diagnosticKeys.maxKeys.map(keyName).join(" + ") || "なし";
+  elements.diagnosticMessage.textContent = `同時に ${diagnosticKeys.max} キーまで届きました（最大 ${names}）`;
+  elements.diagnosticNote.hidden = false;
+}
+
+function startDiagnostic() {
+  if (state !== "idle") return;
+  clearTimeout(diagnosticTimer);
+  diagnosticKeys = pressTracker();
+  diagnosticActive = true;
+  elements.diagnosticPanel.hidden = false;
+  elements.diagnosticNote.hidden = true;
+  elements.diagnosticMessage.textContent = "3秒のあいだ、押せるだけ同時にキーを押してください";
+  elements.diagnose.blur();
+  document.body.focus({ preventScroll: true });
+  diagnosticTimer = setTimeout(finishDiagnostic, PERFORMANCE.diagnosticDurationMs);
+}
+
+function closeDiagnostic() {
+  clearTimeout(diagnosticTimer);
+  diagnosticActive = false;
+  elements.diagnosticPanel.hidden = true;
+}
+
 const exportButtons = [elements.wav, elements.stems, elements.midi, elements.json];
 
 async function runExport(task) {
@@ -511,15 +739,17 @@ async function runExport(task) {
     console.error(error);
     elements.exportStatus.textContent = `書き出しに失敗しました（${error.message}）`;
   } finally {
-    exportButtons.forEach((button) => { button.disabled = false; });
+    exportButtons.forEach((button) => { button.disabled = state === "replay"; });
   }
 }
 
 elements.primary.addEventListener("click", () => {
   if (state === "idle") beginTake("START").catch(showError);
   else if (state === "finished") beginTake("RETAKE").catch(showError);
+  else if (state === "replay") stopReplay().catch(showError);
   else stopTake().catch(showError);
 });
+elements.replay.addEventListener("click", () => beginReplay().catch(showError));
 elements.retake.addEventListener("click", () => beginTake("RETAKE").catch(showError));
 elements.reroll.addEventListener("click", () => {
   elements.seed.value = randomSeed();
@@ -532,6 +762,12 @@ elements.finishReroll.addEventListener("click", () => {
 });
 elements.world.addEventListener("change", () => rebuildLayout());
 elements.seed.addEventListener("change", () => rebuildLayout());
+elements.takeFile.addEventListener("change", () => {
+  const [file] = elements.takeFile.files;
+  if (file) loadTakeFile(file);
+});
+elements.diagnose.addEventListener("click", startDiagnostic);
+elements.diagnosticClose.addEventListener("click", closeDiagnostic);
 elements.json.addEventListener("click", () => {
   if (!takeLog) return;
   runExport(async () => {
@@ -566,7 +802,10 @@ elements.midi.addEventListener("click", () => {
   });
 });
 window.addEventListener("keydown", handleKeyDown);
-window.addEventListener("keyup", (event) => setKeyPressed(event.code, false));
+window.addEventListener("keyup", (event) => {
+  if (diagnosticActive) diagnosticKeys.remove(event.code);
+  else setKeyPressed(event.code, false);
+});
 window.addEventListener("resize", () => renderLayout());
 narrowScreen.addEventListener("change", renderState);
 
