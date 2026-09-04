@@ -35,6 +35,8 @@ zap／glitch は短すぎて残響エネルギーが乗らない。→ **SFX 専
 ### 2.1 `prototype/synth.js` `scheduleLead`
 
 - 戻り値を**ハンドル**にする: 効果が `none`／`delay`／`sweep`／`octave` のとき `{ release(whenSec) }` を返す。`stutter`／`arpeggio` は `null`（長押し非対応）。
+  **★2026-09-04 追記（v0.16.0 で修正）**: ハンドルを返さない効果は、`options.hold === "open"` でも**開いたエンベロープにしてはいけない**。
+  release が呼ばれず `HOLD_MAX_SECONDS`（16秒）鳴り続ける。`supportsHold = effect !== "stutter" && effect !== "arpeggio"` で常に `length` で閉じる。
 - `options.hold === "open"` のとき（ライブ演奏用）:
   - エンベロープは attack → decay → sustain まで予約し、**release を予約しない**。`oscillator.stop` は `when + HOLD_MAX_SECONDS(16) + envelope.release + 0.02`。
   - `release(whenSec)`: 各声部の gain に `cancelAndHoldAtTime(whenSec)`（無ければ `cancelScheduledValues(whenSec)` + `setValueAtTime(param.value, whenSec)`）→
