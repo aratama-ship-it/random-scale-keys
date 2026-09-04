@@ -1,0 +1,307 @@
+{
+  "format": "juggling-motion-scene",
+  "schemaVersion": "0.1.0",
+  "sceneId": "three-ball-cascade-structural-fixture",
+  "metadata": {
+    "title": "3ボールカスケード一周期・構造検証用fixture",
+    "discipline": "juggling",
+    "pattern": "three_ball_cascade",
+    "propCount": 3,
+    "variantType": "structural_fixture",
+    "intendedUses": ["image_generation", "web_ux", "app_ux", "game_2d", "game_3d"],
+    "tags": ["abstract-performer", "loop", "not-physics-validated"],
+    "notes": "Schemaと接触参照の検証用。実測または専門家承認済みの理想軌道ではない。"
+  },
+  "coordinateSystem": {
+    "unit": "meter",
+    "handedness": "right",
+    "origin": "floor_below_pelvis_at_t0",
+    "axes": {
+      "x": "performer_anatomical_right",
+      "y": "up",
+      "z": "performer_forward"
+    },
+    "quaternionOrder": "xyzw"
+  },
+  "timeline": {
+    "durationSeconds": 1.8,
+    "fpsHint": 30,
+    "loopMode": "entity_exact"
+  },
+  "performer": {
+    "id": "performer.main",
+    "skeleton": {
+      "jointNames": [
+        "pelvis",
+        "head",
+        "shoulder.L",
+        "elbow.L",
+        "wrist.L",
+        "shoulder.R",
+        "elbow.R",
+        "wrist.R"
+      ],
+      "rootJoint": "pelvis"
+    },
+    "sourceAdapter": "hand-authored-v0-fixture"
+  },
+  "props": [
+    {
+      "id": "ball.A",
+      "kind": "ball",
+      "geometry": {
+        "locked": true,
+        "dimensions": { "diameter": 0.075 },
+        "gripAnchors": { "center": [0, 0, 0] }
+      },
+      "symmetry": { "type": "spherical" }
+    },
+    {
+      "id": "ball.B",
+      "kind": "ball",
+      "geometry": {
+        "locked": true,
+        "dimensions": { "diameter": 0.075 },
+        "gripAnchors": { "center": [0, 0, 0] }
+      },
+      "symmetry": { "type": "spherical" }
+    },
+    {
+      "id": "ball.C",
+      "kind": "ball",
+      "geometry": {
+        "locked": true,
+        "dimensions": { "diameter": 0.075 },
+        "gripAnchors": { "center": [0, 0, 0] }
+      },
+      "symmetry": { "type": "spherical" }
+    }
+  ],
+  "cameras": [
+    {
+      "id": "camera.front",
+      "projection": "perspective",
+      "position": [0, 1.25, 4],
+      "target": [0, 1.25, 0],
+      "verticalFovDegrees": 40
+    },
+    {
+      "id": "camera.oblique",
+      "projection": "perspective",
+      "position": [2.4, 1.5, 3.2],
+      "target": [0, 1.25, 0],
+      "verticalFovDegrees": 42
+    },
+    {
+      "id": "camera.side",
+      "projection": "perspective",
+      "position": [4, 1.3, 0],
+      "target": [0, 1.25, 0],
+      "verticalFovDegrees": 40
+    }
+  ],
+  "samples": [
+    {
+      "t": 0,
+      "phase": 0,
+      "performerPose": {
+        "rootPosition": [0, 0, 0],
+        "rootOrientation": [0, 0, 0, 1],
+        "joints": {
+          "pelvis": { "position": [0, 1, 0], "confidence": 1, "valueSource": "generated" },
+          "head": { "position": [0, 1.72, 0], "confidence": 1, "valueSource": "generated" },
+          "shoulder.L": { "position": [-0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.L": { "position": [-0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.L": { "position": [-0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" },
+          "shoulder.R": { "position": [0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.R": { "position": [0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.R": { "position": [0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" }
+        }
+      },
+      "propStates": {
+        "ball.A": { "position": [0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.B": { "position": [0, 2, 0.18], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.C": { "position": [-0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "held", "contact": { "performerId": "performer.main", "joint": "wrist.L", "anchor": "center" }, "confidence": 1, "valueSource": "generated" }
+      }
+    },
+    {
+      "t": 0.3,
+      "phase": 0.166667,
+      "performerPose": {
+        "rootPosition": [0, 0, 0],
+        "rootOrientation": [0, 0, 0, 1],
+        "joints": {
+          "pelvis": { "position": [0, 1, 0], "confidence": 1, "valueSource": "generated" },
+          "head": { "position": [0, 1.72, 0], "confidence": 1, "valueSource": "generated" },
+          "shoulder.L": { "position": [-0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.L": { "position": [-0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.L": { "position": [-0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" },
+          "shoulder.R": { "position": [0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.R": { "position": [0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.R": { "position": [0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" }
+        }
+      },
+      "propStates": {
+        "ball.A": { "position": [0, 2, 0.18], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.B": { "position": [0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "held", "contact": { "performerId": "performer.main", "joint": "wrist.R", "anchor": "center" }, "confidence": 1, "valueSource": "generated" },
+        "ball.C": { "position": [-0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" }
+      }
+    },
+    {
+      "t": 0.6,
+      "phase": 0.333333,
+      "performerPose": {
+        "rootPosition": [0, 0, 0],
+        "rootOrientation": [0, 0, 0, 1],
+        "joints": {
+          "pelvis": { "position": [0, 1, 0], "confidence": 1, "valueSource": "generated" },
+          "head": { "position": [0, 1.72, 0], "confidence": 1, "valueSource": "generated" },
+          "shoulder.L": { "position": [-0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.L": { "position": [-0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.L": { "position": [-0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" },
+          "shoulder.R": { "position": [0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.R": { "position": [0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.R": { "position": [0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" }
+        }
+      },
+      "propStates": {
+        "ball.A": { "position": [-0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "held", "contact": { "performerId": "performer.main", "joint": "wrist.L", "anchor": "center" }, "confidence": 1, "valueSource": "generated" },
+        "ball.B": { "position": [0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.C": { "position": [0, 2, 0.18], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" }
+      }
+    },
+    {
+      "t": 0.9,
+      "phase": 0.5,
+      "performerPose": {
+        "rootPosition": [0, 0, 0],
+        "rootOrientation": [0, 0, 0, 1],
+        "joints": {
+          "pelvis": { "position": [0, 1, 0], "confidence": 1, "valueSource": "generated" },
+          "head": { "position": [0, 1.72, 0], "confidence": 1, "valueSource": "generated" },
+          "shoulder.L": { "position": [-0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.L": { "position": [-0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.L": { "position": [-0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" },
+          "shoulder.R": { "position": [0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.R": { "position": [0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.R": { "position": [0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" }
+        }
+      },
+      "propStates": {
+        "ball.A": { "position": [-0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.B": { "position": [0, 2, 0.18], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.C": { "position": [0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "held", "contact": { "performerId": "performer.main", "joint": "wrist.R", "anchor": "center" }, "confidence": 1, "valueSource": "generated" }
+      }
+    },
+    {
+      "t": 1.2,
+      "phase": 0.666667,
+      "performerPose": {
+        "rootPosition": [0, 0, 0],
+        "rootOrientation": [0, 0, 0, 1],
+        "joints": {
+          "pelvis": { "position": [0, 1, 0], "confidence": 1, "valueSource": "generated" },
+          "head": { "position": [0, 1.72, 0], "confidence": 1, "valueSource": "generated" },
+          "shoulder.L": { "position": [-0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.L": { "position": [-0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.L": { "position": [-0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" },
+          "shoulder.R": { "position": [0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.R": { "position": [0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.R": { "position": [0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" }
+        }
+      },
+      "propStates": {
+        "ball.A": { "position": [0, 2, 0.18], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.B": { "position": [-0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "held", "contact": { "performerId": "performer.main", "joint": "wrist.L", "anchor": "center" }, "confidence": 1, "valueSource": "generated" },
+        "ball.C": { "position": [0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" }
+      }
+    },
+    {
+      "t": 1.5,
+      "phase": 0.833333,
+      "performerPose": {
+        "rootPosition": [0, 0, 0],
+        "rootOrientation": [0, 0, 0, 1],
+        "joints": {
+          "pelvis": { "position": [0, 1, 0], "confidence": 1, "valueSource": "generated" },
+          "head": { "position": [0, 1.72, 0], "confidence": 1, "valueSource": "generated" },
+          "shoulder.L": { "position": [-0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.L": { "position": [-0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.L": { "position": [-0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" },
+          "shoulder.R": { "position": [0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.R": { "position": [0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.R": { "position": [0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" }
+        }
+      },
+      "propStates": {
+        "ball.A": { "position": [0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "held", "contact": { "performerId": "performer.main", "joint": "wrist.R", "anchor": "center" }, "confidence": 1, "valueSource": "generated" },
+        "ball.B": { "position": [-0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.C": { "position": [0, 2, 0.18], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" }
+      }
+    },
+    {
+      "t": 1.8,
+      "phase": 1,
+      "performerPose": {
+        "rootPosition": [0, 0, 0],
+        "rootOrientation": [0, 0, 0, 1],
+        "joints": {
+          "pelvis": { "position": [0, 1, 0], "confidence": 1, "valueSource": "generated" },
+          "head": { "position": [0, 1.72, 0], "confidence": 1, "valueSource": "generated" },
+          "shoulder.L": { "position": [-0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.L": { "position": [-0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.L": { "position": [-0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" },
+          "shoulder.R": { "position": [0.22, 1.52, 0.02], "confidence": 1, "valueSource": "generated" },
+          "elbow.R": { "position": [0.32, 1.3, 0.1], "confidence": 1, "valueSource": "generated" },
+          "wrist.R": { "position": [0.24, 1.05, 0.2], "confidence": 1, "valueSource": "generated" }
+        }
+      },
+      "propStates": {
+        "ball.A": { "position": [0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.B": { "position": [0, 2, 0.18], "orientation": [0, 0, 0, 1], "motionState": "flight", "confidence": 1, "valueSource": "generated" },
+        "ball.C": { "position": [-0.24, 1.05, 0.2], "orientation": [0, 0, 0, 1], "motionState": "held", "contact": { "performerId": "performer.main", "joint": "wrist.L", "anchor": "center" }, "confidence": 1, "valueSource": "generated" }
+      }
+    }
+  ],
+  "events": [
+    { "id": "event.release-A-right-0", "t": 0, "type": "release", "propId": "ball.A", "performerId": "performer.main", "handJoint": "wrist.R", "confidence": 1 },
+    { "id": "event.catch-B-right-03", "t": 0.3, "type": "catch", "propId": "ball.B", "performerId": "performer.main", "handJoint": "wrist.R", "confidence": 1 },
+    { "id": "event.release-C-left-03", "t": 0.3, "type": "release", "propId": "ball.C", "performerId": "performer.main", "handJoint": "wrist.L", "confidence": 1 },
+    { "id": "event.catch-A-left-06", "t": 0.6, "type": "catch", "propId": "ball.A", "performerId": "performer.main", "handJoint": "wrist.L", "confidence": 1 },
+    { "id": "event.release-B-right-06", "t": 0.6, "type": "release", "propId": "ball.B", "performerId": "performer.main", "handJoint": "wrist.R", "confidence": 1 },
+    { "id": "event.catch-C-right-09", "t": 0.9, "type": "catch", "propId": "ball.C", "performerId": "performer.main", "handJoint": "wrist.R", "confidence": 1 },
+    { "id": "event.release-A-left-09", "t": 0.9, "type": "release", "propId": "ball.A", "performerId": "performer.main", "handJoint": "wrist.L", "confidence": 1 },
+    { "id": "event.catch-B-left-12", "t": 1.2, "type": "catch", "propId": "ball.B", "performerId": "performer.main", "handJoint": "wrist.L", "confidence": 1 },
+    { "id": "event.release-C-right-12", "t": 1.2, "type": "release", "propId": "ball.C", "performerId": "performer.main", "handJoint": "wrist.R", "confidence": 1 },
+    { "id": "event.catch-A-right-15", "t": 1.5, "type": "catch", "propId": "ball.A", "performerId": "performer.main", "handJoint": "wrist.R", "confidence": 1 },
+    { "id": "event.release-B-left-15", "t": 1.5, "type": "release", "propId": "ball.B", "performerId": "performer.main", "handJoint": "wrist.L", "confidence": 1 },
+    { "id": "event.catch-C-left-18", "t": 1.8, "type": "catch", "propId": "ball.C", "performerId": "performer.main", "handJoint": "wrist.L", "confidence": 1 },
+    { "id": "event.release-A-right-18", "t": 1.8, "type": "release", "propId": "ball.A", "performerId": "performer.main", "handJoint": "wrist.R", "confidence": 1 }
+  ],
+  "presentationProfiles": [
+    {
+      "id": "presentation.physical-front",
+      "purpose": "physical_preview",
+      "cameraId": "camera.front",
+      "screenAdjustments": [],
+      "notes": "物理座標を変更しない正面確認。"
+    },
+    {
+      "id": "presentation.image-oblique",
+      "purpose": "image_generation",
+      "cameraId": "camera.oblique",
+      "screenAdjustments": [],
+      "notes": "画像生成ガイド用。2D補正はまだ加えていない。"
+    }
+  ],
+  "provenance": {
+    "sourceType": "synthetic",
+    "captureMethod": "hand_authored_structural_fixture",
+    "sourceRefs": [],
+    "derivedFrom": [],
+    "rightsStatus": "project_owned",
+    "privacy": "no_personal_media",
+    "notes": "構造検証専用。軌道、タイミング、人体姿勢は物理検証・専門家評価前。"
+  },
+  "extensions": {}
+}

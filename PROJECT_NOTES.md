@@ -188,3 +188,18 @@
 
 - 等高線の見え方・「再生」→Enter停止・同時押し診断（4キー）すべて問題なし → **M3通過**（v0.5.2）
 - 次: M4（サイトスワップJSONの自動演奏デモ＝イベント契約の実証）
+
+### 2026-09-04 M4 app v0.6.0 ジャグリングのシーンを自動演奏（Codex実装・Claude検証）
+
+- 入力: Motion Scene v0（3ボールカスケード fixture、1.8秒13イベント、投げ間隔0.3秒＝100BPMの8分と一致）
+- 写像: **道具1つ＝音1つ**（propId→度数をseedで決定論的に割当）、handJoint→オクターブ（wrist.R=0／wrist.L=−1）、
+  飛行時間→音長、catch=発音、release=ログのみ。T・和音・伴奏・応答音・着地はキーボードと同一規則
+- 実測（世界A・16小節）: press 127／release 128、propごとに ball.A=度数3(stable)/ball.B=4(tension)/ball.C=6(floating)、
+  打鍵間隔は一定0.3秒。midi は同じ球でも手で12差（例 ball.A: 52/64）。クオンタイズはOFF/8分で時刻が変わることを
+  意図的にずらしたシーンで確認（0.37→0.60に吸着）
+- 素材: fixture を `app/scenes/` に複製（SHA-256一致・PROVENANCE.md に出典と取得日）。**元フォルダは無変更（ハッシュ照合済み）**
+- **見つけたバグ（Claudeが修正）**: `prototype/render.js` が `kind` を見ずに全イベントを scheduleLead していたため、
+  release（velocity 0・length 0）も無音ノードとして生成され、レンダーが 16小節で30秒超に悪化していた。
+  `(event.kind ?? "press") === "press"` の絞り込みを追加 → **WAV 1.1秒・ステム3本 3.0秒**（従来比で約1/20）。
+  キーボードのミックスWAVは M1 基準サンプルと ±1LSB 一致＝出力不変。UI表記も実測値へ更新
+- テスト app 24/24・prototype 15/15、console error 0（favicon除く）

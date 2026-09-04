@@ -297,7 +297,8 @@ body[data-high-tension="true"] .legend { color: var(--text); }
 .finish-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
 .export-status { min-height: calc(var(--fs-small) * var(--lh-small)); color: var(--text-sub); font-size: var(--fs-small); line-height: var(--lh-small); }
 .share-link { overflow-wrap: anywhere; color: var(--text-sub); }
-.loaded-take { overflow-wrap: anywhere; font-size: var(--fs-small); line-height: var(--lh-small); }
+.loaded-take,
+.scene-summary { overflow-wrap: anywhere; font-size: var(--fs-small); line-height: var(--lh-small); }
 .mobile-message { display: none; }
 
 body[data-imported="true"] .keyboard,

@@ -26,6 +26,7 @@ import {
 import { downloadTakeJson, scheduleRecordedTake } from "../prototype/render.js";
 import { createSynth } from "../prototype/synth.js";
 import { downloadTakeMidi } from "./midi.js";
+import { detectFormat, sceneToEvents } from "./scene-map.mjs";
 import { downloadMixWav, downloadStems } from "./stems.js";
 import {
   diagnosticDisabledForState,
@@ -75,6 +76,8 @@ const elements = {
   retake: document.querySelector("#retake"),
   replay: document.querySelector("#replay"),
   seed: document.querySelector("#seed"),
+  scenePlay: document.querySelector("#scene-play"),
+  sceneSummary: document.querySelector("#scene-summary"),
   settings: document.querySelector("#settings"),
   shareLink: document.querySelector("#share-link"),
   statusLabel: document.querySelector("#status-label"),
@@ -119,6 +122,7 @@ let lastPressEvent;
 let answerCount = 0;
 let takeLog;
 let loadedTakeFilename = "";
+let loadedSceneSummary = "";
 let diagnosticActive = false;
 let diagnosticKeys;
 let diagnosticTimer;
@@ -284,7 +288,10 @@ function updateFinishedPanel() {
   const presses = takeLog.events.filter((event) => event.kind === "press").length;
   elements.takeSummary.textContent = `${seconds.toFixed(1)}秒・${takeLog.bars}小節・打鍵 ${presses}`;
   elements.loadedTake.hidden = !loadedTakeFilename;
-  elements.loadedTake.textContent = loadedTakeFilename ? `読み込んだテイク: ${loadedTakeFilename}` : "";
+  const loadedKind = loadedSceneSummary ? "シーン" : "テイク";
+  elements.loadedTake.textContent = loadedTakeFilename ? `読み込んだ${loadedKind}: ${loadedTakeFilename}` : "";
+  elements.sceneSummary.hidden = !loadedSceneSummary;
+  elements.sceneSummary.textContent = loadedSceneSummary;
   elements.shareLink.textContent = `共有リンク: ${formatParams({ world: takeLog.worldId, seed: takeLog.seed })}（配置だけを共有。テイクはWAV/JSONで）`;
 }
 
@@ -403,9 +410,13 @@ async function beginTake(eventType) {
   closeDiagnostic();
   await closeAudio();
   elements.exportStatus.textContent = "";
-  if (eventType === "START") rebuildLayout();
+  if (eventType === "START") {
+    loadedSceneSummary = "";
+    rebuildLayout();
+  }
   if (eventType === "RETAKE") {
     loadedTakeFilename = "";
+    loadedSceneSummary = "";
     document.body.dataset.imported = "false";
     renderLayout();
   }
@@ -528,7 +539,7 @@ async function beginReplay() {
   lastTensionBeat = 0;
   currentChord = tonicChordForWorld(takeLog.worldId);
   terrain.setTension(0);
-  scheduleRecordedTake(audioContext, synth, takeLog, takeStart);
+  scheduleRecordedTake(audioContext, synth, audibleTakeLog(takeLog), takeStart);
   scheduleReplayVisuals();
   finishTimer = setTimeout(finishReplayNaturally, Math.max(0, (takeEnd - audioContext.currentTime) * 1000));
   renderState();
@@ -683,23 +694,77 @@ function normalizeLoadedLog(log) {
   };
 }
 
+function audibleTakeLog(log) {
+  return {
+    ...log,
+    events: log.events.filter((event) => event.kind === "press" || event.kind === "answer"),
+  };
+}
+
+function motionSceneSummary(scene) {
+  const pattern = scene.metadata?.pattern === "three_ball_cascade"
+    ? "3ボールカスケード"
+    : (scene.metadata?.title ?? scene.sceneId ?? "Motion Scene");
+  const propCount = scene.metadata?.propCount ?? scene.props?.length ?? 0;
+  return `ジャグリング: ${pattern}（${propCount}球・${scene.timeline.durationSeconds}秒を繰り返し）`;
+}
+
+function loadMotionScene(scene, filename = "") {
+  const world = getWorld(elements.world.value);
+  const seed = normalizedSeed();
+  elements.seed.value = String(seed);
+  takeLog = sceneToEvents(scene, {
+    worldId: world.id,
+    seed,
+    bpm: world.bpm,
+    bars: PERFORMANCE.bars,
+    quantize: selectedQuantize(),
+  });
+  const validation = validateTakeLog(takeLog);
+  if (!validation.ok) throw new Error(validation.reason);
+  loadedTakeFilename = filename;
+  loadedSceneSummary = motionSceneSummary(scene);
+  state = "finished";
+  rebuildLayout({ imported: true });
+  elements.exportStatus.textContent = "";
+}
+
+async function loadBundledScene() {
+  elements.loadError.textContent = "";
+  try {
+    const response = await fetch("./scenes/three-ball-cascade.json");
+    if (!response.ok) throw new Error(`同梱シーンを取得できませんでした（HTTP ${response.status}）`);
+    loadMotionScene(await response.json());
+  } catch (error) {
+    elements.loadError.textContent = `読み込めませんでした（${error.message}）`;
+  }
+}
+
 async function loadTakeFile(file) {
   elements.loadError.textContent = "";
   try {
     const parsed = JSON.parse(await file.text());
-    const validation = validateTakeLog(parsed);
-    if (!validation.ok) throw new Error(validation.reason);
-    takeLog = normalizeLoadedLog(parsed);
-    loadedTakeFilename = file.name;
-    elements.world.value = takeLog.worldId;
-    elements.seed.value = String(takeLog.seed);
-    const quantizeValue = takeLog.quantize.enabled
-      ? ({ 1: "4", 2: "8", 4: "16" }[takeLog.quantize.division] ?? "off")
-      : "off";
-    elements.quantize.value = quantizeValue;
-    state = "finished";
-    rebuildLayout({ imported: true });
-    elements.exportStatus.textContent = "";
+    const format = detectFormat(parsed);
+    if (format === "juggling-motion-scene") {
+      loadMotionScene(parsed, file.name);
+    } else if (format === "gravity-v0") {
+      const validation = validateTakeLog(parsed);
+      if (!validation.ok) throw new Error(validation.reason);
+      takeLog = normalizeLoadedLog(parsed);
+      loadedTakeFilename = file.name;
+      loadedSceneSummary = "";
+      elements.world.value = takeLog.worldId;
+      elements.seed.value = String(takeLog.seed);
+      const quantizeValue = takeLog.quantize.enabled
+        ? ({ 1: "4", 2: "8", 4: "16" }[takeLog.quantize.division] ?? "off")
+        : "off";
+      elements.quantize.value = quantizeValue;
+      state = "finished";
+      rebuildLayout({ imported: true });
+      elements.exportStatus.textContent = "";
+    } else {
+      throw new Error("対応していない形式です");
+    }
   } catch (error) {
     elements.loadError.textContent = `読み込めませんでした（${error.message}）`;
   } finally {
@@ -773,6 +838,7 @@ elements.finishReroll.addEventListener("click", () => {
 });
 elements.world.addEventListener("change", () => rebuildLayout());
 elements.seed.addEventListener("change", () => rebuildLayout());
+elements.scenePlay.addEventListener("click", loadBundledScene);
 elements.takeFile.addEventListener("change", () => {
   const [file] = elements.takeFile.files;
   if (file) loadTakeFile(file);
@@ -791,14 +857,14 @@ elements.wav.addEventListener("click", () => {
   if (!takeLog) return;
   runExport(async () => {
     elements.exportStatus.textContent = "WAVをレンダー中…";
-    await downloadMixWav(takeLog);
+    await downloadMixWav(audibleTakeLog(takeLog));
     elements.exportStatus.textContent = "WAVを書き出しました";
   });
 });
 elements.stems.addEventListener("click", () => {
   if (!takeLog) return;
   runExport(async () => {
-    await downloadStems(takeLog, ({ index, total }) => {
+    await downloadStems(audibleTakeLog(takeLog), ({ index, total }) => {
       elements.exportStatus.textContent = `ステム ${index}/${total} をレンダー中…`;
     });
     elements.exportStatus.textContent = "ステム3本を書き出しました";
@@ -808,7 +874,7 @@ elements.midi.addEventListener("click", () => {
   if (!takeLog) return;
   runExport(async () => {
     elements.exportStatus.textContent = "MIDIを書き出し中…";
-    downloadTakeMidi(takeLog);
+    downloadTakeMidi(audibleTakeLog(takeLog));
     elements.exportStatus.textContent = "MIDIを書き出しました";
   });
 });

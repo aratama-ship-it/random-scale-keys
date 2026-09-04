@@ -42,7 +42,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
   let pendingResolutionBeat = Infinity;
   let resolutionReverbUntilBeat = -Infinity;
 
-  partitionEventsByBar(events, bars).flat().filter((event) => includesBeat(event.beat)).forEach((event) => {
+  partitionEventsByBar(events, bars).flat().filter((event) => includesBeat(event.beat) && (event.kind ?? "press") === "press").forEach((event) => {
     synth.scheduleLead(
       event,
       startTime + event.time,

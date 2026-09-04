@@ -6,7 +6,7 @@
   <meta name="description" content="PCキーボードのA〜Zで、ランダムなスケール配置を演奏するブラウザアプリ">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./style.css">
-  <title>random-scale-keys v0.5.2</title>
+  <title>random-scale-keys v0.6.0</title>
 </head>
 <body tabindex="-1">
   <canvas id="terrain" aria-hidden="true"></canvas>
@@ -14,7 +14,7 @@
 
   <main class="app-shell">
     <header class="topbar">
-      <p class="version">random-scale-keys v0.5.2</p>
+      <p class="version">random-scale-keys v0.6.0</p>
       <p class="take-status" aria-live="polite">
         <span id="status-world">世界 daylight</span>
         <span aria-hidden="true">／</span>
@@ -54,6 +54,7 @@
             <input id="seed" name="seed" type="number" inputmode="numeric" autocomplete="off" spellcheck="false">
           </label>
           <button id="reroll" class="button button-secondary performance-setting" type="button">振り直し</button>
+          <button id="scene-play" class="button button-secondary performance-setting" type="button">ジャグリングを演奏</button>
           <label class="button button-secondary file-button">JSONを読み込む
             <input id="take-file" name="take-file" type="file" accept="application/json,.json">
           </label>
@@ -75,6 +76,7 @@
         <h1 id="finished-title">テイク完了</h1>
         <p id="take-summary"></p>
         <p id="loaded-take" class="loaded-take" hidden></p>
+        <p id="scene-summary" class="scene-summary" hidden></p>
         <div class="export-actions">
           <button id="replay" class="button button-primary" type="button">再生</button>
           <button id="wav" class="button button-primary" type="button">WAVを書き出す</button>
@@ -82,7 +84,7 @@
           <button id="midi" class="button button-primary" type="button">MIDIを書き出す</button>
           <button id="json" class="button button-secondary" type="button">JSONを書き出す</button>
         </div>
-        <p class="export-note">WAVの生成は約4秒／ステムは約20秒</p>
+        <p class="export-note">WAVの生成は約1秒／ステムは約3秒</p>
         <p id="export-status" class="export-status" aria-live="polite"></p>
         <div class="finish-actions">
           <button id="retake" class="button button-secondary" type="button">同じ配置でもう1テイク</button>
