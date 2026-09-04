@@ -151,3 +151,22 @@ test("MIDI ending follows rootMidi and falls back to the world's legacy root", (
   assert.equal(legacy.rootMidi, 60);
   assert.deepEqual(legacy.tracks.pad.map(({ midi }) => midi), [48, 52, 55]);
 });
+
+test("MIDI reflects drum velocity and drums-only rendering leaves pad and bass empty", () => {
+  const recorder = createMidiRecorder({ worldId: "daylight", scaleId: "ionian", bpm: 100 });
+  recorder.scheduleKick(0, 0.4);
+  recorder.scheduleSnare(0.6, 0.35);
+  recorder.scheduleHat(1.2, true, 0.7);
+  assert.deepEqual(recorder.tracks.drums.map(({ midi, velocity }) => [midi, velocity]), [
+    [36, midiVelocity(0.4)],
+    [38, midiVelocity(0.35)],
+    [46, midiVelocity(0.7)],
+  ]);
+
+  const log = { ...sampleLog(), rhythm: "gravity", accompaniment: "drums" };
+  const drumsOnly = createMidiRecorder(log);
+  scheduleRecordedTake(drumsOnly.context, drumsOnly, log, 0);
+  assert.equal(drumsOnly.tracks.pad.length, 0);
+  assert.equal(drumsOnly.tracks.bass.length, 0);
+  assert.equal(drumsOnly.tracks.drums.at(-1).midi, 36);
+});

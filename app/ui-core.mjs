@@ -1,4 +1,5 @@
 import { SCALES, resolveScaleId } from "../prototype/gravity.mjs";
+import { RHYTHMS } from "../prototype/rhythms.mjs";
 
 const VALID_WORLDS = new Set(["daylight", "night"]);
 
@@ -170,6 +171,8 @@ export function validateTakeLog(value) {
   if (typeof value.bpm !== "number" || !Number.isFinite(value.bpm) || value.bpm <= 0) return { ok: false, reason: "bpm が正の数値ではありません" };
   if (!Number.isInteger(value.bars) || value.bars <= 0) return { ok: false, reason: "bars が正の整数ではありません" };
   if (value.melody !== undefined && value.melody !== "gravity" && value.melody !== "off") return { ok: false, reason: "melody が gravity または off ではありません" };
+  if (value.rhythm !== undefined && !Object.hasOwn(RHYTHMS, value.rhythm)) return { ok: false, reason: "rhythm が既知のリズムではありません" };
+  if (value.accompaniment !== undefined && value.accompaniment !== "full" && value.accompaniment !== "drums") return { ok: false, reason: "accompaniment が full または drums ではありません" };
   if (!value.quantize || typeof value.quantize !== "object" || Array.isArray(value.quantize)) return { ok: false, reason: "quantize オブジェクトがありません" };
   if (!Array.isArray(value.events)) return { ok: false, reason: "events 配列がありません" };
   const requiredFor = (event) => event?.kind === "sfx"

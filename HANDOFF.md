@@ -9,7 +9,7 @@
 
 1. `apps/music-plugins/random-scale-keys/PROJECT_NOTES.md`（決定事項と検証ログの正本。末尾から遡ると速い）
 2. `apps/music-plugins/random-scale-keys/README.md`（起動方法・公開URL・トークンシート外の値）
-3. `apps/music-plugins/random-scale-keys/SPEC_M11.md`（直近の仕様。M1〜M10も同フォルダ）
+3. `apps/music-plugins/random-scale-keys/SPEC_M12.md` と `SPEC_M11.md`（直近の仕様。M1〜M10も同フォルダ）
 
 ### これは何か
 
@@ -20,9 +20,10 @@ PCキーボードのA〜Zにスケール音とエフェクトをランダムに�
 
 ### いまの状態（2026-09-04）
 
-- **app v0.12.0 を公開中**（M8: 親音階ハーモニー＋4小節の終止／M9: arp／M10: 数字キーSFX＋自動SFX／M11: SFXの部屋リバーブ・長押しサステイン・音色4種とShift切替）: https://aratama-ship-it.github.io/random-scale-keys/
+- **app v0.15.0 を公開中**（M8: 親音階ハーモニー＋4小節の終止／M9: arp／M10: 数字キーSFX＋自動SFX／M11: SFXの部屋リバーブ・長押しサステイン・音色4種とShift切替／M12: メロディの重力（対位法ルール）・12キー＋ランダム・リズム5種＋ドラムだけモード）: https://aratama-ship-it.github.io/random-scale-keys/
 - repo: https://github.com/aratama-ship-it/random-scale-keys （public、Pages=main/root）
-- M1〜M11 まで完了。M8〜M10 は本人が「全体的に大丈夫」と判定済み。M11（SFXリバーブ・サステイン・音色）を公開した直後で、**本人の試聴判定を待っている**状態
+- M1〜M12 まで完了。M8〜M10 は本人が「全体的に大丈夫」と判定済み。M11（SFXリバーブ・サステイン・音色）と M12（メロディの重力・キー・リズム）を公開した直後で、**本人の試聴判定を待っている**状態。
+  本人は**後日、自作のドラム音源を追加する**予定（`prototype/rhythms.mjs` の `source: "loop"` を予約済み・未実装）
 
 ### 直近の宿題（ここから始める）
 

@@ -153,6 +153,13 @@ test("validateTakeLog accepts matching rootMidi and key while retaining legacy l
   assert.deepEqual(validateTakeLog(validTakeLog()), { ok: true });
 });
 
+test("validateTakeLog accepts rhythm and accompaniment while retaining legacy defaults", () => {
+  assert.deepEqual(validateTakeLog({ ...validTakeLog(), rhythm: "disco", accompaniment: "drums" }), { ok: true });
+  assert.match(validateTakeLog({ ...validTakeLog(), rhythm: "waltz" }).reason, /rhythm/);
+  assert.match(validateTakeLog({ ...validTakeLog(), accompaniment: "bass" }).reason, /accompaniment/);
+  assert.deepEqual(validateTakeLog(validTakeLog()), { ok: true });
+});
+
 test("validateTakeLog accepts SFX without note fields and rejects missing SFX fields", () => {
   const sfxLog = validTakeLog();
   sfxLog.events = [{ time: 0.6, beat: 1, kind: "sfx", code: "Digit4", sfx: "zap", variant: 0, velocity: 0.8 }];
@@ -207,12 +214,12 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.14.0 waiting screen includes key selection without changing the cadence engine", async () => {
+test("v0.15.0 waiting screen includes rhythm, accompaniment, BPM, and the updated cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../style.css", import.meta.url), "utf8");
-  assert.match(html, /<title>random-scale-keys v0\.14\.0<\/title>/);
-  assert.match(html, /<p class="version">random-scale-keys v0\.14\.0<\/p>/);
+  assert.match(html, /<title>random-scale-keys v0\.15\.0<\/title>/);
+  assert.match(html, /<p class="version">random-scale-keys v0\.15\.0<\/p>/);
   assert.match(html, /id="status-key">キー C/);
   assert.match(html, /<select id="key" name="key">/);
   const keySelect = html.match(/<select id="key" name="key">[\s\S]*?<\/select>/)?.[0];
@@ -241,6 +248,14 @@ test("v0.14.0 waiting screen includes key selection without changing the cadence
   assert.match(main, /performanceTip\.hidden = state !== "idle"/);
   assert.match(main, /elements\.keyboard\.classList\.add\("shift"\)/);
   assert.match(css, /\.keyboard\.shift \.key:not\(\.key-sfx\).*var\(--text-sub\)/);
-  assert.equal(main.match(/engine: "accomp-v4"/g)?.length, 2);
+  assert.match(html, /id="status-bpm">♩=100/);
+  assert.match(html, /<select id="rhythm" name="rhythm">/);
+  assert.match(html, /<option value="gravity" selected>重力（現行）<\/option>/);
+  assert.match(html, /<select id="accompaniment" name="accompaniment">/);
+  assert.match(html, /<option value="full" selected>フル<\/option>/);
+  assert.match(main, /bpmForRhythm\(rhythm, world\.bpm\)/);
+  assert.match(main, /rhythm,/);
+  assert.match(main, /accompaniment: selectedAccompaniment\(\)/);
+  assert.equal(main.match(/engine: "accomp-v5"/g)?.length, 2);
   assert.match(main, /beat % 16 === 0 && beat > 0\s*\? 1\s*:/);
 });

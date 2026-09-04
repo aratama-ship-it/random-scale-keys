@@ -38,7 +38,7 @@ function sampleLog(bars = 2) {
 }
 
 function recordingSynth() {
-  const calls = { lead: [], pad: [], bass: [], kick: [], snare: [], hat: [], sfx: [] };
+  const calls = { lead: [], pad: [], bass: [], kick: [], snare: [], hat: [], sfx: [], ending: [] };
   return {
     beatSec: 0.6,
     calls,
@@ -50,7 +50,7 @@ function recordingSynth() {
     scheduleHat: (...args) => calls.hat.push(args),
     scheduleSfx: (...args) => calls.sfx.push(args),
     scheduleResolution: () => {},
-    scheduleEnding: () => {},
+    scheduleEnding: (...args) => calls.ending.push(args),
     setReverbSend: () => {},
   };
 }
@@ -217,7 +217,28 @@ test("arrival step zero overrides the existing hat pattern with an open hat in s
   log.events.push({ kind: "press", beat: 15.5, time: 15.5 * 0.6, degree: 2, midi: 62, velocity: 0.8, length: 0.3, effect: "none", tAfter: 0.4 });
   const synth = recordingSynth();
   scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
-  assert.deepEqual(synth.calls.hat.find(([when]) => when === 16 * 0.6), [16 * 0.6, true]);
+  assert.deepEqual(synth.calls.hat.find(([when]) => when === 16 * 0.6), [16 * 0.6, true, 1]);
+});
+
+test("drums-only rendering omits every pad and bass reservation and ends with only the kick option", () => {
+  const log = { ...sampleLog(16), rhythm: "gravity", accompaniment: "drums" };
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
+  assert.equal(synth.calls.pad.length, 0);
+  assert.equal(synth.calls.bass.length, 0);
+  assert.ok(synth.calls.kick.length > 0);
+  assert.ok(synth.calls.sfx.length > 0);
+  assert.deepEqual(synth.calls.ending, [[16 * 4 * 0.6, { drumsOnly: true }]]);
+});
+
+test("legacy logs default to gravity and full accompaniment", () => {
+  const legacy = recordingSynth();
+  const explicit = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, legacy, sampleLog(16), 0);
+  scheduleRecordedTake({ currentTime: 0 }, explicit, {
+    ...sampleLog(16), rhythm: "gravity", accompaniment: "full",
+  }, 0);
+  assert.deepEqual(explicit.calls, legacy.calls);
 });
 
 test("all 21 scales produce a complete deterministic accompaniment schedule", () => {

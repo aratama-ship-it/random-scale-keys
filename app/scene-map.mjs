@@ -24,6 +24,7 @@ import {
   velocityFromInterval,
   voiceLead,
 } from "../prototype/gravity.mjs";
+import { RHYTHMS } from "../prototype/rhythms.mjs";
 
 const BEATS_PER_BAR = 4;
 const STEPS_PER_BEAT = 4;
@@ -148,6 +149,8 @@ export function sceneToEvents(scene, {
   bars,
   keyChoice,
   melody = "gravity",
+  rhythm = "gravity",
+  accompaniment = "full",
   quantize,
 } = {}) {
   validateScene(scene);
@@ -155,6 +158,8 @@ export function sceneToEvents(scene, {
   if (!(Number.isFinite(bpm) && bpm > 0)) throw new TypeError("bpm が正の数値ではありません");
   if (!(Number.isInteger(bars) && bars > 0)) throw new TypeError("bars が正の整数ではありません");
   if (melody !== "gravity" && melody !== "off") throw new TypeError("melody が gravity または off ではありません");
+  if (!Object.hasOwn(RHYTHMS, rhythm)) throw new TypeError("rhythm が既知のリズムではありません");
+  if (accompaniment !== "full" && accompaniment !== "drums") throw new TypeError("accompaniment が full または drums ではありません");
 
   const normalizedSeed = hashSeed(seed);
   const rootMidi = resolveRootMidi(worldId, keyChoice, normalizedSeed);
@@ -388,7 +393,7 @@ export function sceneToEvents(scene, {
     .map(({ _order, ...event }) => event);
   return {
     version: "gravity-v0",
-    engine: "accomp-v4",
+    engine: "accomp-v5",
     worldId,
     scaleId,
     seed: normalizedSeed,
@@ -397,6 +402,8 @@ export function sceneToEvents(scene, {
     bpm,
     bars,
     melody,
+    rhythm,
+    accompaniment,
     quantize: quantizeSetting,
     events: sortedEvents,
     motionScene: {

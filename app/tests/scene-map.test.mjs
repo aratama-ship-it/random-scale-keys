@@ -76,7 +76,26 @@ test("sceneToEvents maps catches to presses, preserves releases only as log even
   assert.equal(log.rootMidi, 60);
   assert.equal(log.key, 0);
   assert.equal(log.melody, "gravity");
-  assert.equal(log.engine, "accomp-v4");
+  assert.equal(log.engine, "accomp-v5");
+  assert.equal(log.rhythm, "gravity");
+  assert.equal(log.accompaniment, "full");
+});
+
+test("sceneToEvents records rhythm and accompaniment settings", () => {
+  const log = sceneToEvents(fixture, {
+    worldId: "daylight",
+    scaleId: "ionian",
+    seed: 123,
+    bpm: 172,
+    bars: 1,
+    rhythm: "dnb",
+    accompaniment: "drums",
+    quantize: { enabled: false, division: null },
+  });
+  assert.equal(log.bpm, 172);
+  assert.equal(log.rhythm, "dnb");
+  assert.equal(log.accompaniment, "drums");
+  assert.equal(log.engine, "accomp-v5");
 });
 
 test("sceneToEvents records and applies an explicit key root", () => {

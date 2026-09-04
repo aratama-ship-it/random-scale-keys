@@ -6,7 +6,7 @@
   <meta name="description" content="PCキーボードのA〜Zで、ランダムなスケール配置を演奏するブラウザアプリ">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./style.css">
-  <title>random-scale-keys v0.14.0</title>
+  <title>random-scale-keys v0.15.0</title>
 </head>
 <body tabindex="-1">
   <canvas id="terrain" aria-hidden="true"></canvas>
@@ -15,11 +15,13 @@
 
   <main class="app-shell">
     <header class="topbar">
-      <p class="version">random-scale-keys v0.14.0</p>
+      <p class="version">random-scale-keys v0.15.0</p>
       <p class="take-status" aria-live="polite">
         <span id="status-world">世界 daylight</span>
         <span aria-hidden="true">／</span>
         <span id="status-key">キー C</span>
+        <span aria-hidden="true">／</span>
+        <span id="status-bpm">♩=100</span>
         <span aria-hidden="true">／</span>
         <span id="status-seed">seed —</span>
         <span aria-hidden="true">／</span>
@@ -96,6 +98,21 @@
                 <option value="double_harmonic">ダブル・ハーモニック</option>
                 <option value="egyptian">エジプシャン</option>
               </optgroup>
+            </select>
+          </label>
+          <label class="performance-setting">リズム
+            <select id="rhythm" name="rhythm">
+              <option value="gravity" selected>重力（現行）</option>
+              <option value="disco">ディスコ</option>
+              <option value="dnb">ドラムンベース</option>
+              <option value="pops">ポップス</option>
+              <option value="hiphop">ヒップホップ</option>
+            </select>
+          </label>
+          <label class="performance-setting">伴奏
+            <select id="accompaniment" name="accompaniment">
+              <option value="full" selected>フル</option>
+              <option value="drums">ドラムだけ</option>
             </select>
           </label>
           <label class="performance-setting">メロディの重力

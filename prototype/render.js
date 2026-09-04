@@ -10,19 +10,16 @@ import {
   getScale,
   getWorld,
   harmonyScaleId,
-  hatForStep,
-  hatSwingSeconds,
-  kickForStep,
   noteMemory,
   phraseRole,
   reverbSendFromSilence,
   resolveScaleId,
   sectionForBar,
   sfxNoiseSeed,
-  snareForStep,
   tonicChordForScale,
   voiceLead,
 } from "./gravity.mjs";
+import { drumHitsForStep, drumSwingSeconds } from "./rhythms.mjs";
 import { createSynth } from "./synth.js";
 
 function rootMidiForChord(rootMidi, scaleId, chordName) {
@@ -125,6 +122,8 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
   const bpm = log.bpm;
   const beatSec = 60 / bpm;
   const bars = log.bars;
+  const rhythmId = log.rhythm ?? "gravity";
+  const drumsOnly = log.accompaniment === "drums";
   const events = [...log.events].sort((left, right) => left.beat - right.beat);
   const chordPlan = accompanimentPlan(log);
   const includesBeat = (beat) => beat >= fromBeat && beat < toBeat;
@@ -188,7 +187,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       padVoices = resolving
         ? voicingForChord(rootMidi, scaleId, chordName, padVoices, { rootPosition: arrival })
         : chordPlan[barIndex].voices;
-      if (schedulesStep) {
+      if (schedulesStep && !drumsOnly) {
         synth.schedulePad(chordName, startTime + beat * beatSec, beatSec * 4, tension, {
           voices: padVoices,
         });
@@ -206,8 +205,10 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       chordName = tonicChordForScale(scaleId);
       padVoices = voicingForChord(rootMidi, scaleId, chordName, padVoices, { rootPosition: arrival });
       if (schedulesStep) {
-        if (stepInBar !== 0) synth.schedulePad(chordName, when, beatSec * (4 - (beat % 4)), tension, { voices: padVoices });
-        synth.scheduleResolution(rootMidi, when);
+        if (!drumsOnly) {
+          if (stepInBar !== 0) synth.schedulePad(chordName, when, beatSec * (4 - (beat % 4)), tension, { voices: padVoices });
+          synth.scheduleResolution(rootMidi, when);
+        }
       }
       pendingResolutionBeat = Infinity;
       resolutionReverbUntilBeat = beat + 2;
@@ -220,41 +221,49 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
         stemRole: "accomp",
       });
     });
-    if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
+    const drumHits = drumHitsForStep(rhythmId, section, stepInBar, currentTension);
+    const drumWhen = when + drumSwingSeconds(rhythmId, log.worldId, stepInBar, beatSec);
+    drumHits.filter(({ type }) => type === "kick")
+      .forEach(({ velocity }) => synth.scheduleKick(drumWhen, velocity));
     const bassNotes = bassChordNotes(rootMidi, scaleId, chordName);
     const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
     const thirdBeatBass = currentTension >= 0.3 ? bassNotes[0] + 12 : fifth;
-    if (stepInBar === 0) {
-      synth.scheduleBass(bassNotes[0], when, 0.28, arrival ? 1 : 0.9);
-    } else if (stepInBar === 8) {
-      synth.scheduleBass(thirdBeatBass, when, 0.28, 0.75);
-      if (section === "b") {
-        synth.schedulePad(chordName, when, beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
+    if (!drumsOnly) {
+      if (stepInBar === 0) {
+        synth.scheduleBass(bassNotes[0], when, 0.28, arrival ? 1 : 0.9);
+      } else if (stepInBar === 8) {
+        synth.scheduleBass(thirdBeatBass, when, 0.28, 0.75);
+        if (section === "b") {
+          synth.schedulePad(chordName, when, beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
+        }
+      } else if (stepInBar === 12 && role === "cadence") {
+        const seventhPitchClass = (rootMidi + chordSeventhInterval(scaleId, chordName)) % 12;
+        synth.scheduleBass(nearestMidiForPitchClass(seventhPitchClass, thirdBeatBass), when, 0.28, 0.7);
+      } else if (stepInBar === 14) {
+        const nextChord = chordPlan[barIndex + 1]?.chordName ?? tonicChordForScale(scaleId);
+        const nextRootSemitone = chordRootInterval(scaleId, nextChord);
+        const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(scaleId)));
+        const approachPitchClass = (rootMidi + approach) % 12;
+        synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
       }
-    } else if (stepInBar === 12 && role === "cadence") {
-      const seventhPitchClass = (rootMidi + chordSeventhInterval(scaleId, chordName)) % 12;
-      synth.scheduleBass(nearestMidiForPitchClass(seventhPitchClass, thirdBeatBass), when, 0.28, 0.7);
-    } else if (stepInBar === 14) {
-      const nextChord = chordPlan[barIndex + 1]?.chordName ?? tonicChordForScale(scaleId);
-      const nextRootSemitone = chordRootInterval(scaleId, nextChord);
-      const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(scaleId)));
-      const approachPitchClass = (rootMidi + approach) % 12;
-      synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
     }
-    if (snareForStep(section, stepInBar)) {
-      synth.scheduleSnare(when);
-    }
+    drumHits.filter(({ type }) => type === "snare")
+      .forEach(({ velocity }) => synth.scheduleSnare(drumWhen, velocity));
     if (role === "cadence" && stepInBar === 14) synth.scheduleSnare(when, 0.7);
-    if ((section === "a" || section === "b") && silenceBeats < 8) {
-      const hat = arrival && stepInBar === 0 ? "open" : hatForStep(currentTension, stepInBar);
-      if (hat) {
-        const swing = hatSwingSeconds(log.worldId, stepInBar, beatSec);
-        synth.scheduleHat(when + swing, hat === "open");
-      }
+    let hatHits = drumHits.filter(({ type }) => type === "hatClosed" || type === "hatOpen");
+    if ((section === "a" || section === "b") && arrival && stepInBar === 0) {
+      hatHits = [{ type: "hatOpen", velocity: 1 }];
+    }
+    if (rhythmId !== "gravity" || silenceBeats < 8) {
+      hatHits.forEach(({ type, velocity }) => synth.scheduleHat(drumWhen, type === "hatOpen", velocity));
     }
   }
   const endingBeat = bars * 4;
-  if (includesBeat(endingBeat)) synth.scheduleEnding(startTime + endingBeat * beatSec);
+  if (includesBeat(endingBeat)) {
+    const when = startTime + endingBeat * beatSec;
+    if (drumsOnly) synth.scheduleEnding(when, { drumsOnly: true });
+    else synth.scheduleEnding(when);
+  }
 }
 
 export async function renderTakeToWav(log) {

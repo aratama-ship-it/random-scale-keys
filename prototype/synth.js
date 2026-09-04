@@ -590,19 +590,19 @@ export function createSynth(context, {
     });
   }
 
-  function scheduleKick(when) {
+  function scheduleKick(when, velocity = 1) {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.frequency.setValueAtTime(150, when);
     oscillator.frequency.exponentialRampToValueAtTime(50, when + 0.10);
-    gain.gain.setValueAtTime(0.5, when);
+    gain.gain.setValueAtTime(0.5 * velocity, when);
     gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.10);
     oscillator.connect(gain);
     gain.connect(accompDestination);
     const click = context.createBufferSource();
     const clickGain = context.createGain();
     click.buffer = whiteNoiseBuffer(context, 0.005, drumRandom);
-    clickGain.gain.setValueAtTime(0.35, when);
+    clickGain.gain.setValueAtTime(0.35 * velocity, when);
     clickGain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.005);
     click.connect(clickGain);
     clickGain.connect(accompDestination);
@@ -641,7 +641,7 @@ export function createSynth(context, {
     body.stop(when + 0.09);
   }
 
-  function scheduleHat(when, open = false) {
+  function scheduleHat(when, open = false, velocity = 1) {
     const duration = open ? 0.12 : 0.04;
     const source = context.createBufferSource();
     const highpass = context.createBiquadFilter();
@@ -650,7 +650,7 @@ export function createSynth(context, {
     source.buffer = whiteNoiseBuffer(context, duration, drumRandom);
     highpass.type = "highpass";
     highpass.frequency.value = 7000;
-    gain.gain.setValueAtTime((worldId === "night" ? 0.7 : 1) * 0.09 * 0.8 * 0.6, when);
+    gain.gain.setValueAtTime((worldId === "night" ? 0.7 : 1) * 0.09 * 0.8 * 0.6 * velocity, when);
     gain.gain.exponentialRampToValueAtTime(MIN_GAIN, when + duration);
     source.connect(highpass);
     highpass.connect(gain);
@@ -823,7 +823,11 @@ export function createSynth(context, {
     reverbInput.gain.linearRampToValueAtTime(0.2, when + beatSec * 2);
   }
 
-  function scheduleEnding(when) {
+  function scheduleEnding(when, { drumsOnly = false } = {}) {
+    if (drumsOnly) {
+      scheduleKick(when);
+      return;
+    }
     const tonic = tonicChordForScale(scaleId);
     schedulePad(tonic, when, 0.1, 0, { release: 2.5 });
     scheduleLead({ midi: rootMidi }, when, 0.1, 0.45, "none", 0, { release: 2.5, stemRole: "accomp" });

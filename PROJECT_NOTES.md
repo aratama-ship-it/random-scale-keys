@@ -403,3 +403,17 @@
 - `world.rootMidi` の直接参照は実コードでは 16 か所（仕様に書いた 29 は grep の重複込み）。すべて `log.rootMidi ?? 既定` に置換、古いログは既定で鳴る
 - 検証: テスト prototype 76/76・app 37/37、`node --check` 8ファイル。既定キーでは伴奏＋配置の予約列が M11 と 42/42 一致（音は不変）。
   キー D（2）の配置例: rootMidi 62、KeyA=度数5・オクターブ+1 → midi 81
+
+### 2026-09-04 M12 部B app v0.15.0 リズムの選択とドラムだけモード（Codex実装・Claude検証）
+
+- `prototype/rhythms.mjs`（データ駆動）: gravity（現行規則・世界の BPM）／disco 118／dnb 172／pops 100／hiphop 90（swing 0.12）。
+  セクション別 16 ステップ×velocity。`drumHitsForStep`／`bpmForRhythm`／`drumSwingSeconds`。将来の自作音源は `source: "loop"` を予約（README に記載、未実装）
+- 設定「リズム」「伴奏（フル／ドラムだけ）」、上帯に ♩=BPM、ログに `rhythm`／`accompaniment`、engine `accomp-v5`。古いログは gravity／full
+- 検証: テスト prototype 84/84・app 40/40、`node --check` 7ファイル。**gravity／full の予約列（和音・声部・ベース・パッド・スネア・ハット・キック・SFX・終止）は部B前と 42/42 一致**。
+  Node 実測（合成ログ）: disco はキック 0/4/8/12 の4つ打ち＋オフビートのオープンハット、dnb はスネア 4/12＋ゴースト 7/15（0.35）、hiphop は奇数16分が 0.12 遅れる、
+  BPM は 118/172/100/90 が記録される。ドラムだけ: パッド 0・ベース 0・自動SFX 6・終止は `drumsOnly`
+- Codex の判断: intro/outro の型は各リズムの基本キックだけの疎な形／swing はハットだけでなく奇数16分の全ヒットに適用（仕様が曖昧だった。妥当なので採用）
+- ブラウザ実測: 5リズム×2世界すべてレンダー例外なし（ミックスのピーク 0.78〜0.85、尺は dnb 26.3秒〜hiphop 46.7秒）、決定論 ±1LSB（disco・dnb 各3回）。
+  ドラムだけモードの accomp ステム: 100Hz 以下の RMS 0.033→0.018（仕様の「1/3 以下」には届かないが、残りはキックと自動インパクトの低域。
+  パッド・ベースの予約が 0 であることは Node で確認済み＝ベースは消えている）
+- 未確認のまま本人へ: 各リズムの質感・BPM、ドラムだけモードの音量感、dnb の短さ（16小節=26秒）

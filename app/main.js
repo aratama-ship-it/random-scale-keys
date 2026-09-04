@@ -17,11 +17,8 @@ import {
   getScale,
   getWorld,
   harmonyScaleId,
-  hatForStep,
-  hatSwingSeconds,
   isResolution,
   KEY_NAMES,
-  kickForStep,
   LEAD_TIMBRES,
   midiForDegreeFromRoot,
   noteMemory,
@@ -35,13 +32,18 @@ import {
   SFX_KEYS,
   SFX_LABELS,
   sfxNoiseSeed,
-  snareForStep,
   TIMBRE_LABELS,
   tonicChordForScale,
   updateTension,
   velocityFromInterval,
   voiceLead,
 } from "../prototype/gravity.mjs";
+import {
+  RHYTHMS,
+  bpmForRhythm,
+  drumHitsForStep,
+  drumSwingSeconds,
+} from "../prototype/rhythms.mjs";
 import { downloadTakeJson, scheduleRecordedTake } from "../prototype/render.js";
 import { createSynth, HOLD_MAX_SECONDS } from "../prototype/synth.js";
 import { downloadTakeMidi } from "./midi.js";
@@ -80,6 +82,7 @@ const FORM_TAGS = new Set(["INPUT", "SELECT", "TEXTAREA"]);
 
 const elements = {
   answer: document.querySelector("#answer"),
+  accompaniment: document.querySelector("#accompaniment"),
   chord: document.querySelector("#chord"),
   content: document.querySelector("#content"),
   countin: document.querySelector("#countin"),
@@ -99,6 +102,7 @@ const elements = {
   performanceTip: document.querySelector("#performance-tip"),
   quantize: document.querySelector("#quantize"),
   reroll: document.querySelector("#reroll"),
+  rhythm: document.querySelector("#rhythm"),
   retake: document.querySelector("#retake"),
   replay: document.querySelector("#replay"),
   seed: document.querySelector("#seed"),
@@ -107,6 +111,7 @@ const elements = {
   settings: document.querySelector("#settings"),
   shareLink: document.querySelector("#share-link"),
   statusLabel: document.querySelector("#status-label"),
+  statusBpm: document.querySelector("#status-bpm"),
   statusKey: document.querySelector("#status-key"),
   statusPosition: document.querySelector("#status-position"),
   statusSection: document.querySelector("#status-section"),
@@ -192,6 +197,19 @@ function selectedTimbres() {
 
 function selectedMelody() {
   return elements.melody.value === "off" ? "off" : "gravity";
+}
+
+function selectedRhythm() {
+  return Object.hasOwn(RHYTHMS, elements.rhythm.value) ? elements.rhythm.value : "gravity";
+}
+
+function selectedAccompaniment() {
+  return elements.accompaniment.value === "drums" ? "drums" : "full";
+}
+
+function selectedBpm() {
+  const world = getWorld(layout?.worldId ?? elements.world.value);
+  return bpmForRhythm(selectedRhythm(), world.bpm);
 }
 
 function selectedKeyChoice() {
@@ -362,7 +380,7 @@ function renderState() {
   elements.performanceTip.hidden = state !== "idle";
   document.body.dataset.state = state;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
-  [elements.world, elements.key, elements.scale, elements.melody, elements.quantize, elements.timbre, elements.timbreShift, elements.seed, elements.reroll]
+  [elements.world, elements.key, elements.scale, elements.rhythm, elements.accompaniment, elements.melody, elements.quantize, elements.timbre, elements.timbreShift, elements.seed, elements.reroll]
     .forEach((control) => { control.disabled = nextTakeSettingsDisabledForState(state); });
   elements.diagnose.disabled = diagnosticDisabledForState(state);
   elements.primary.disabled = (state === "idle" || state === "finished") && narrowScreen.matches;
@@ -370,6 +388,7 @@ function renderState() {
   elements.statusLabel.textContent = state === "idle" ? "待機" : state === "countin" ? "カウントイン" : state === "playing" ? "演奏中" : state === "replay" ? "再生中" : "テイク完了";
   elements.statusWorld.textContent = `世界 ${layout?.worldId ?? elements.world.value}`;
   elements.statusKey.textContent = `キー ${KEY_NAMES[layout?.key ?? Number(elements.key.value)]}`;
+  elements.statusBpm.textContent = `♩=${state === "countin" || state === "playing" || state === "replay" ? takeLog?.bpm ?? selectedBpm() : selectedBpm()}`;
   elements.statusSeed.textContent = `seed ${layout?.seed ?? elements.seed.value}`;
   elements.statusPosition.textContent = active ? " 1/16小節" : "";
   elements.statusSection.textContent = active ? " intro" : "";
@@ -514,6 +533,7 @@ function scheduleAccompanimentStep(step) {
   const stepInBar = step % (PERFORMANCE.stepsPerBeat * PERFORMANCE.beatsPerBar);
   const section = sectionForBar(barIndex);
   const when = takeStart + beat * synth.beatSec;
+  const drumsOnly = takeLog.accompaniment === "drums";
 
   if (section === "end") {
     tension = decayTension(tension, beat - lastTensionBeat);
@@ -532,7 +552,7 @@ function scheduleAccompanimentStep(step) {
     currentChord = resolving || barIndex === 0 ? tonicChordForScale(layout.scaleId) : nextChord;
     padVoices = voicingForChord(currentChord, padVoices, { rootPosition: arrival });
     chordHistory.push(currentChord);
-    synth.schedulePad(currentChord, when, synth.beatSec * PERFORMANCE.beatsPerBar, tension, { voices: padVoices });
+    if (!drumsOnly) synth.schedulePad(currentChord, when, synth.beatSec * PERFORMANCE.beatsPerBar, tension, { voices: padVoices });
   }
 
   scheduleAnswerAtBoundary(beat, when, section);
@@ -543,8 +563,10 @@ function scheduleAccompanimentStep(step) {
   if (resolving) {
     currentChord = tonicChordForScale(layout.scaleId);
     padVoices = voicingForChord(currentChord, padVoices, { rootPosition: arrival });
-    if (stepInBar !== 0) synth.schedulePad(currentChord, when, synth.beatSec * (PERFORMANCE.beatsPerBar - (beat % PERFORMANCE.beatsPerBar)), tension, { voices: padVoices });
-    synth.scheduleResolution(layout.rootMidi, when);
+    if (!drumsOnly) {
+      if (stepInBar !== 0) synth.schedulePad(currentChord, when, synth.beatSec * (PERFORMANCE.beatsPerBar - (beat % PERFORMANCE.beatsPerBar)), tension, { voices: padVoices });
+      synth.scheduleResolution(layout.rootMidi, when);
+    }
     pendingResolutionBeat = Infinity;
     resolutionReverbUntilBeat = beat + 2;
     scheduleVisualAt(when, () => {
@@ -560,33 +582,42 @@ function scheduleAccompanimentStep(step) {
       stemRole: "accomp",
     });
   });
-  if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
+  const drumHits = drumHitsForStep(takeLog.rhythm, section, stepInBar, currentTension);
+  const drumWhen = when + drumSwingSeconds(takeLog.rhythm, layout.worldId, stepInBar, synth.beatSec);
+  drumHits.filter(({ type }) => type === "kick")
+    .forEach(({ velocity }) => synth.scheduleKick(drumWhen, velocity));
   const bassNotes = bassChordNotes(currentChord);
   const fifth = bassNotes.find((midi) => (midi - bassNotes[0]) % 12 === 7) ?? bassNotes[1];
   const thirdBeatBass = currentTension >= 0.3 ? bassNotes[0] + 12 : fifth;
-  if (stepInBar === 0) {
+  if (!drumsOnly && stepInBar === 0) {
     synth.scheduleBass(bassNotes[0], when, 0.28, arrival ? 1 : 0.9);
-  } else if (stepInBar === 8) {
+  } else if (!drumsOnly && stepInBar === 8) {
     synth.scheduleBass(thirdBeatBass, when, 0.28, 0.75);
     if (section === "b") {
       synth.schedulePad(currentChord, when, synth.beatSec * 2, tension, { voices: padVoices, gainScale: 0.6 });
     }
-  } else if (stepInBar === 12 && role === "cadence") {
+  } else if (!drumsOnly && stepInBar === 12 && role === "cadence") {
     const seventhPitchClass = (layout.rootMidi + chordSeventhInterval(layout.scaleId, currentChord)) % 12;
     synth.scheduleBass(nearestMidiForPitchClass(seventhPitchClass, thirdBeatBass), when, 0.28, 0.7);
   } else if (stepInBar === 14) {
     if (barIndex + 1 < PERFORMANCE.bars) nextChord = chooseNextChord(barIndex, beat, currentTension);
     else nextChord = tonicChordForScale(layout.scaleId);
-    const nextRootSemitone = chordRootInterval(layout.scaleId, nextChord);
-    const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(layout.scaleId)));
-    const approachPitchClass = (layout.rootMidi + approach) % 12;
-    synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
+    if (!drumsOnly) {
+      const nextRootSemitone = chordRootInterval(layout.scaleId, nextChord);
+      const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(layout.scaleId)));
+      const approachPitchClass = (layout.rootMidi + approach) % 12;
+      synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
+    }
   }
-  if (snareForStep(section, stepInBar)) synth.scheduleSnare(when);
+  drumHits.filter(({ type }) => type === "snare")
+    .forEach(({ velocity }) => synth.scheduleSnare(drumWhen, velocity));
   if (role === "cadence" && stepInBar === 14) synth.scheduleSnare(when, 0.7);
-  if ((section === "a" || section === "b") && silenceBeats < 8) {
-    const hat = arrival && stepInBar === 0 ? "open" : hatForStep(currentTension, stepInBar);
-    if (hat) synth.scheduleHat(when + hatSwingSeconds(layout.worldId, stepInBar, synth.beatSec), hat === "open");
+  let hatHits = drumHits.filter(({ type }) => type === "hatClosed" || type === "hatOpen");
+  if ((section === "a" || section === "b") && arrival && stepInBar === 0) {
+    hatHits = [{ type: "hatOpen", velocity: 1 }];
+  }
+  if (takeLog.rhythm !== "gravity" || silenceBeats < 8) {
+    hatHits.forEach(({ type, velocity }) => synth.scheduleHat(drumWhen, type === "hatOpen", velocity));
   }
 }
 
@@ -624,6 +655,8 @@ async function beginTake(eventType) {
   }
   const nextState = transition(state, eventType);
   const world = getWorld(layout.worldId);
+  const rhythm = selectedRhythm();
+  const bpm = bpmForRhythm(rhythm, world.bpm);
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) throw new Error("このブラウザはWeb Audio APIに対応していません");
   audioContext = new AudioContextClass();
@@ -631,7 +664,7 @@ async function beginTake(eventType) {
   synth = createSynth(audioContext, {
     worldId: layout.worldId,
     scaleId: layout.scaleId,
-    bpm: world.bpm,
+    bpm,
     seed: layout.seed,
     rootMidi: layout.rootMidi,
   });
@@ -661,15 +694,17 @@ async function beginTake(eventType) {
   nextStep = 0;
   takeLog = {
     version: "gravity-v0",
-    engine: "accomp-v4",
+    engine: "accomp-v5",
     worldId: layout.worldId,
     scaleId: layout.scaleId,
     seed: layout.seed,
     rootMidi: layout.rootMidi,
     key: layout.key,
-    bpm: world.bpm,
+    bpm,
     bars: PERFORMANCE.bars,
     melody: selectedMelody(),
+    rhythm,
+    accompaniment: selectedAccompaniment(),
     quantize: selectedQuantize(),
     timbres: selectedTimbres(),
     events: [],
@@ -678,7 +713,8 @@ async function beginTake(eventType) {
   renderState();
   schedulerTimer = setInterval(scheduleAhead, PERFORMANCE.schedulerIntervalMs);
   scheduleAhead();
-  synth.scheduleEnding(takeEnd);
+  if (takeLog.accompaniment === "drums") synth.scheduleEnding(takeEnd, { drumsOnly: true });
+  else synth.scheduleEnding(takeEnd);
   finishTimer = setTimeout(markTakeFinished, Math.max(0, (takeEnd - audioContext.currentTime) * 1000));
 }
 
@@ -1041,8 +1077,10 @@ function normalizeLoadedLog(log) {
   };
   return {
     ...log,
-    engine: "accomp-v4",
+    engine: "accomp-v5",
     melody: log.melody === "off" ? "off" : "gravity",
+    rhythm: Object.hasOwn(RHYTHMS, log.rhythm) ? log.rhythm : "gravity",
+    accompaniment: log.accompaniment === "drums" ? "drums" : "full",
     scaleId: resolveScaleId(log.worldId, log.scaleId),
     rootMidi,
     key: log.key ?? rootMidi % 12,
@@ -1088,16 +1126,20 @@ function motionSceneSummary(scene) {
 
 function loadMotionScene(scene, filename = "") {
   const world = getWorld(elements.world.value);
+  const rhythm = selectedRhythm();
+  const bpm = bpmForRhythm(rhythm, world.bpm);
   const seed = normalizedSeed();
   elements.seed.value = String(seed);
   takeLog = sceneToEvents(scene, {
     worldId: world.id,
     scaleId: elements.scale.value,
     seed,
-    bpm: world.bpm,
+    bpm,
     bars: PERFORMANCE.bars,
     keyChoice: selectedKeyChoice(),
     melody: selectedMelody(),
+    rhythm,
+    accompaniment: selectedAccompaniment(),
     quantize: selectedQuantize(),
   });
   takeLog.timbres = selectedTimbres();
@@ -1143,6 +1185,8 @@ async function loadTakeFile(file) {
       elements.timbre.value = takeLog.timbres.main;
       elements.timbreShift.value = takeLog.timbres.shift;
       elements.melody.value = takeLog.melody === "off" ? "off" : "on";
+      elements.rhythm.value = takeLog.rhythm;
+      elements.accompaniment.value = takeLog.accompaniment;
       elements.seed.value = String(takeLog.seed);
       const quantizeValue = takeLog.quantize.enabled
         ? ({ 1: "4", 2: "8", 4: "16" }[takeLog.quantize.division] ?? "off")
@@ -1232,6 +1276,8 @@ elements.world.addEventListener("change", () => {
 });
 elements.scale.addEventListener("change", () => rebuildLayout());
 elements.key.addEventListener("change", () => rebuildLayout());
+elements.rhythm.addEventListener("change", renderState);
+elements.accompaniment.addEventListener("change", renderState);
 elements.seed.addEventListener("change", () => rebuildLayout());
 elements.scenePlay.addEventListener("click", loadBundledScene);
 elements.takeFile.addEventListener("change", () => {

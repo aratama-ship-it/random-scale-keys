@@ -137,7 +137,11 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, ev
     note(tracks.bass, "bass", 24 + (rootMidi % 12), when, 0.4, 1);
   }
 
-  function scheduleEnding(when) {
+  function scheduleEnding(when, { drumsOnly = false } = {}) {
+    if (drumsOnly) {
+      scheduleDrum(36, when);
+      return;
+    }
     const tonic = tonicChordForScale(scaleId);
     schedulePad(tonic, when, 0.1);
     scheduleLead({ midi: rootMidi }, when, 0.1, 0.45);
@@ -156,9 +160,9 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, ev
     scheduleLead,
     schedulePad,
     scheduleBass,
-    scheduleKick: (when) => scheduleDrum(36, when),
-    scheduleSnare: (when) => scheduleDrum(38, when),
-    scheduleHat: (when, open = false) => scheduleDrum(open ? 46 : 42, when),
+    scheduleKick: (when, velocity = 1) => scheduleDrum(36, when, velocity),
+    scheduleSnare: (when, velocity = 1) => scheduleDrum(38, when, velocity),
+    scheduleHat: (when, open = false, velocity = 1) => scheduleDrum(open ? 46 : 42, when, velocity),
     scheduleSfx,
     scheduleClick: () => {},
     scheduleResolution,

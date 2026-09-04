@@ -206,3 +206,21 @@ test("rootMidi option drives tapestop and ending while the world default remains
   const legacy = createSynth(mockContext(), { worldId: "night", scaleId: "aeolian", bpm: 88 });
   assert.equal(legacy.rootMidi, 57);
 });
+
+test("kick and hat velocity scale their gains while drums-only ending schedules only a kick", () => {
+  const context = mockContext();
+  const synth = createSynth(context, { worldId: "daylight", scaleId: "ionian", bpm: 100 });
+  const hasSet = (expected, when) => context.params.some((param) => param.calls.some(([kind, value, scheduledWhen]) => (
+    kind === "set" && Math.abs(value - expected) < 1e-12 && scheduledWhen === when
+  )));
+  synth.scheduleKick(1, 0.4);
+  assert.ok(hasSet(0.2, 1));
+  assert.ok(hasSet(0.14, 1));
+  synth.scheduleHat(2, false, 0.5);
+  assert.ok(hasSet(0.0216, 2));
+
+  const oscillatorsBeforeEnding = context.oscillatorNodes.length;
+  synth.scheduleEnding(3, { drumsOnly: true });
+  assert.equal(context.oscillatorNodes.length, oscillatorsBeforeEnding + 1);
+  assert.ok(hasSet(0.5, 3));
+});
