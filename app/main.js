@@ -64,7 +64,7 @@ const PERFORMANCE = Object.freeze({
 });
 const KEY_ROWS = Object.freeze(["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
 const ROLE_MARKS = Object.freeze({ stable: "●", floating: "◐", tension: "▲" });
-const EFFECT_LABELS = Object.freeze({ none: "—", delay: "dly", sweep: "swp", octave: "oct", stutter: "stt" });
+const EFFECT_LABELS = Object.freeze({ none: "—", delay: "dly", sweep: "swp", octave: "oct", stutter: "stt", arpeggio: "arp" });
 const FORM_TAGS = new Set(["INPUT", "SELECT", "TEXTAREA"]);
 
 const elements = {

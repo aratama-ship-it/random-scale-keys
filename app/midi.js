@@ -1,4 +1,6 @@
 import {
+  ARPEGGIO_GAINS,
+  arpeggioOffsets,
   chordMidiNotes,
   getWorld,
   resolveScaleId,
@@ -56,6 +58,20 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) 
   const tracks = { lead: [], pad: [], bass: [], drums: [] };
 
   function scheduleLead(source, when, length, velocity, effect = "none") {
+    if (effect === "arpeggio" && Number.isInteger(source.degree)) {
+      const arpeggioLength = Math.max(0.12, (beatSec / 3) * 0.9);
+      arpeggioOffsets(scaleId, source.degree).forEach((midiOffset, index) => {
+        note(
+          tracks.lead,
+          "lead",
+          source.midi + midiOffset,
+          when + index * beatSec / 3,
+          arpeggioLength,
+          velocity * ARPEGGIO_GAINS[index],
+        );
+      });
+      return;
+    }
     const times = effect === "stutter"
       ? [when, when + beatSec / 8, when + beatSec / 4]
       : [when];

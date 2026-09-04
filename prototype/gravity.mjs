@@ -2,7 +2,8 @@ export const KEY_CODES = Object.freeze(
   Array.from({ length: 26 }, (_, index) => `Key${String.fromCharCode(65 + index)}`),
 );
 
-export const EFFECT_COUNTS = Object.freeze({ none: 14, delay: 4, sweep: 3, octave: 3, stutter: 2 });
+export const EFFECT_COUNTS = Object.freeze({ none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
+export const ARPEGGIO_GAINS = Object.freeze([1, 0.85, 0.75]);
 
 export const WORLDS = Object.freeze({
   daylight: Object.freeze({
@@ -240,6 +241,21 @@ export function midiForDegree(worldId, scaleId, degree, octave = 0) {
     throw new RangeError(`Invalid scale degree: ${degree}`);
   }
   return world.rootMidi + scale.intervals[degree - 1] + octave * 12;
+}
+
+export function arpeggioOffsets(scaleId, degree) {
+  const scale = getScale(scaleId);
+  const count = scale.intervals.length;
+  if (!Number.isInteger(degree) || degree < 1 || degree > count) {
+    throw new RangeError(`Invalid scale degree: ${degree}`);
+  }
+  const rootIndex = degree - 1;
+  return [0, 2, 4].map((degreeOffset) => {
+    const index = rootIndex + degreeOffset;
+    return scale.intervals[index % count]
+      + 12 * Math.floor(index / count)
+      - scale.intervals[rootIndex];
+  });
 }
 
 function triadForDegree(scaleId, degree) {

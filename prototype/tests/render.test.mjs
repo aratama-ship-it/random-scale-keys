@@ -60,6 +60,16 @@ test("scheduleRecordedTake sends press and answer notes through the shared lead 
   assert.deepEqual(synth.calls.lead.map(([event]) => event.kind), ["press", "answer"]);
 });
 
+test("scheduleRecordedTake sends one arpeggio press through one synth lead call", () => {
+  const log = sampleLog();
+  log.events[0].effect = "arpeggio";
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
+  assert.equal(synth.calls.lead.length, 1);
+  assert.equal(synth.calls.lead[0][0], log.events[0]);
+  assert.equal(synth.calls.lead[0][4], "arpeggio");
+});
+
 test("accompanimentPlan commits the next bar chord at the last eighth-note position deterministically", () => {
   const first = accompanimentPlan(sampleLog());
   const second = accompanimentPlan(sampleLog());

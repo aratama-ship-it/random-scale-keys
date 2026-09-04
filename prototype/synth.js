@@ -1,4 +1,6 @@
 import {
+  ARPEGGIO_GAINS,
+  arpeggioOffsets,
   chordMidiNotes,
   cutoffForTension,
   getWorld,
@@ -272,7 +274,8 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
       : { attack: 0.008, decay: 0.5, sustain: 0.3, release: 0.6 };
     if (options.release !== undefined) envelope.release = options.release;
     const destinationNode = isStem && options.stemRole === "accomp" ? accompBus : leadBus;
-    const scheduleSingle = (time, gainScale = 1) => {
+    let scheduledLength = length;
+    const scheduleSingle = (time, gainScale = 1, midiOffset = 0) => {
       const cutoff = cutoffForTension(tension, options.cutoffMinimum ?? 1200);
       const filter = {
         cutoff,
@@ -282,27 +285,32 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
       };
       if (worldId === "daylight") {
         fmElectricPiano({
-          midi: note.midi,
+          midi: note.midi + midiOffset,
           gain: velocity * gainScale * 0.2,
           modulationIndex: 300 * velocity * gainScale,
           when: time,
-          length,
+          length: scheduledLength,
           envelope,
           filter,
           delaySend: effect === "delay",
           destinationNode,
         });
-        voice({ midi: note.midi + 12, type: "sine", gain: velocity * gainScale * 0.2 * 0.18, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
+        voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.2 * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
       } else {
-        voice({ midi: note.midi, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
-        voice({ midi: note.midi, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
+        voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
+        voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
       }
       if (effect === "octave") {
-        voice({ midi: note.midi + 12, type: "sine", gain: velocity * gainScale * 0.3 * 0.2, when: time, length, envelope, destinationNode, reverb: destinationNode !== leadBus, filter });
+        voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.3 * 0.2, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter });
       }
     };
     if (effect === "stutter") {
       [1, 0.7, 0.5].forEach((scale, index) => scheduleSingle(when + index * beatSec / 8, scale));
+    } else if (effect === "arpeggio" && Number.isInteger(note.degree)) {
+      scheduledLength = Math.max(0.12, (beatSec / 3) * 0.9);
+      arpeggioOffsets(scaleId, note.degree).forEach((midiOffset, index) => {
+        scheduleSingle(when + index * beatSec / 3, ARPEGGIO_GAINS[index], midiOffset);
+      });
     } else {
       scheduleSingle(when);
     }

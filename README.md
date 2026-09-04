@@ -6,7 +6,7 @@ PCキーボードのA〜Zに、スケール音とエフェクトをランダム�
 - 企画の正本: `obsidian-vault/ideas/2026-09-03_ランダム鍵盤で曲になるアプリ_ブレスト.md`
 - 関連（所有境界を分ける）: `apps/utility-app/juggling-music-reactor/`（ジャグリング動作→音楽。イベント契約v0の正本）。
   本アプリは同契約のサブセットを使う。相互にファイルを書き換えない。
-- 状態（2026-09-04）: **app v0.9.0 のM8実装までローカルで完了**。21種のスケール選択、残り時間と進捗表示、
+- 状態（2026-09-04）: **app v0.10.0 のM9実装までローカルで完了**。21種のスケール選択、残り時間と進捗表示、
   16小節の演奏、Motion SceneとテイクJSONの読み込み、テイクの再生、ミックスWAV、ステム3本、SMF Format 1、JSON書き出しに対応。
 - 試聴用の公開（GitHub Pages）: https://aratama-ship-it.github.io/random-scale-keys/ （`prototype/` へ転送）。
   公開リポジトリには `prototype/`・README・PROJECT_NOTES だけを載せ、`design/`（判断用HTML・トークンシート・参照メモ）は
@@ -29,11 +29,15 @@ python3 -m http.server 8962 --bind 127.0.0.1
 実装計画（判断用HTML）: `http://127.0.0.1:8962/design/IMPLEMENTATION_PLAN_2026-09-03.html`
 （Claude Codeのプレビューでは `.claude/launch.json` の `random-scale-keys`＝同じ8962番で配信。`/` は `/prototype/` へ）
 
-## 起動（app v0.9.0、PC専用）
+## 起動（app v0.10.0、PC専用）
 
 上記と同じローカルサーバーを起動し、`http://127.0.0.1:8962/app/` を開く。
 
 同梱の3ボールカスケードは投げ間隔0.3秒で、100BPMの8分音符と一致する。
+
+効果は delay／sweep／octave／stutter／arpeggio。arpeggio は押した度数を起点に、音階上の1・3・5度を
+1拍3等分の3連符で上行する。v0.10.0では効果の配分が変わるため、同じseedでもv0.9.0とは効果の割当が変わるが、
+度数・役割・オクターブは変わらない。
 
 ## 音階の定義について
 

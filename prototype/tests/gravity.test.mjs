@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  ARPEGGIO_GAINS,
   accentForBeat,
   allocateKeys,
   answerDegree,
+  arpeggioOffsets,
   approachDegree,
   EFFECT_COUNTS,
   KEY_CODES,
@@ -49,6 +51,7 @@ test("createLayout is deterministic for the same seed and changes for another se
 
 test("createLayout assigns all keys with exact role and effect counts", () => {
   const layout = createLayout(42, "daylight");
+  assert.equal(Object.values(EFFECT_COUNTS).reduce((sum, value) => sum + value, 0), 26);
   assert.deepEqual(Object.keys(layout.keys).sort(), [...KEY_CODES].sort());
   const count = (field) => Object.values(layout.keys).reduce((result, key) => {
     result[key[field]] = (result[key[field]] ?? 0) + 1;
@@ -63,6 +66,34 @@ test("createLayout assigns all keys with exact role and effect counts", () => {
     const values = Object.values(degreeCounts);
     assert.ok(Math.max(...values) - Math.min(...values) <= 1);
   }
+});
+
+test("createLayout preserves the v0.9.0 degree, role, and octave sequence for seed 42", () => {
+  const expected = {
+    KeyA: [1, "stable", -1], KeyB: [5, "stable", 0], KeyC: [5, "stable", 0],
+    KeyD: [2, "floating", -1], KeyE: [1, "stable", 0], KeyF: [6, "floating", 1],
+    KeyG: [6, "floating", 1], KeyH: [3, "stable", 0], KeyI: [2, "floating", 0],
+    KeyJ: [1, "stable", 1], KeyK: [7, "tension", 0], KeyL: [3, "stable", 1],
+    KeyM: [2, "floating", 0], KeyN: [5, "stable", -1], KeyO: [6, "floating", -1],
+    KeyP: [4, "tension", 0], KeyQ: [3, "stable", 0], KeyR: [7, "tension", 0],
+    KeyS: [4, "tension", -1], KeyT: [1, "stable", 0], KeyU: [7, "tension", 0],
+    KeyV: [5, "stable", -1], KeyW: [7, "tension", 1], KeyX: [4, "tension", 0],
+    KeyY: [3, "stable", 1], KeyZ: [6, "floating", 0],
+  };
+  const actual = Object.fromEntries(Object.entries(createLayout(42, "daylight").keys)
+    .map(([code, { degree, role, octave }]) => [code, [degree, role, octave]]));
+  assert.deepEqual(actual, expected);
+});
+
+test("arpeggioOffsets follows scale degrees across octave boundaries", () => {
+  assert.deepEqual(arpeggioOffsets("ionian", 1), [0, 4, 7]);
+  assert.deepEqual(arpeggioOffsets("ionian", 5), [0, 4, 7]);
+  assert.deepEqual(arpeggioOffsets("ionian", 7), [0, 3, 6]);
+  assert.deepEqual(arpeggioOffsets("major_pentatonic", 1), [0, 4, 9]);
+  assert.deepEqual(arpeggioOffsets("major_pentatonic", 5), [0, 5, 10]);
+  assert.throws(() => arpeggioOffsets("ionian", 0), RangeError);
+  assert.throws(() => arpeggioOffsets("ionian", 8), RangeError);
+  assert.deepEqual(ARPEGGIO_GAINS, [1, 0.85, 0.75]);
 });
 
 test("tension decays for eight beats before applying the role delta", () => {
