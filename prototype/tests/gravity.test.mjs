@@ -15,12 +15,15 @@ import {
   chordForBar,
   chordLabel,
   chordMidiNotes,
+  chordRootInterval,
   chordRootMidi,
   chordForTension,
   chordToneWeight,
   chooseChord,
   createLayout,
   deriveRoles,
+  getScale,
+  harmonyScaleId,
   isResolution,
   noteMemory,
   noteLengthFromInterval,
@@ -167,32 +170,86 @@ test("chord degrees, labels, and section skeletons reproduce ionian and aeolian"
   assert.deepEqual(skeleton("aeolian", "b"), ["VI", "iv", "i", "VII"]);
 });
 
-test("all nine five- and six-note scales use the specified interval-based tonic and function roots", () => {
+test("harmonyScaleId maps the eight parent scales and leaves other scales unchanged", () => {
+  assert.deepEqual(Object.fromEntries([
+    "major_pentatonic", "minor_pentatonic", "blues", "yo",
+    "egyptian", "in_sen", "hirajoshi", "ryukyu",
+  ].map((scaleId) => [scaleId, harmonyScaleId(scaleId)])), {
+    major_pentatonic: "ionian",
+    minor_pentatonic: "aeolian",
+    blues: "aeolian",
+    yo: "ionian",
+    egyptian: "dorian",
+    in_sen: "phrygian",
+    hirajoshi: "aeolian",
+    ryukyu: "ionian",
+  });
+  assert.equal(harmonyScaleId("ionian"), "ionian");
+  assert.equal(harmonyScaleId("whole_tone"), "whole_tone");
+});
+
+test("major pentatonic uses ionian triads and harmony function degrees", () => {
+  const pitchClasses = (chord) => chordMidiNotes("daylight", "major_pentatonic", chord)
+    .map((midi) => midi % 12);
+  assert.deepEqual(pitchClasses("I"), [0, 4, 7]);
+  assert.deepEqual(pitchClasses("IV"), [5, 9, 0]);
+  assert.deepEqual(pitchClasses("V"), [7, 11, 2]);
+  assert.deepEqual(pitchClasses("vi"), [9, 0, 4]);
+  assert.deepEqual(chordDegrees("major_pentatonic"), {
+    tonic: 1, subdominant: 4, dominant: 5, submediant: 6,
+  });
+  assert.equal(Array.from({ length: 7 }, (_, index) => chordLabel("major_pentatonic", index + 1))
+    .some((label) => label.endsWith("*")), false);
+});
+
+test("in sen and hirajoshi use the specified parent-scale chord qualities", () => {
+  assert.equal(tonicChordForScale("in_sen"), "i");
+  assert.deepEqual(chordMidiNotes("daylight", "in_sen", "i").map((midi) => midi % 12), [0, 3, 7]);
+  assert.deepEqual(chordMidiNotes("daylight", "in_sen", "iv").map((midi) => midi % 12), [5, 8, 0]);
+  assert.equal(chordLabel("hirajoshi", chordDegrees("hirajoshi").dominant), "VII");
+  assert.deepEqual(chordMidiNotes("daylight", "hirajoshi", "VII").map((midi) => midi % 12), [10, 2, 5]);
+});
+
+test("chordDegreeNotes bridges parent chords back to lead-scale degrees", () => {
+  assert.deepEqual(chordDegreeNotes("major_pentatonic", "IV"), [1, 5]);
+  assert.deepEqual(chordDegreeNotes("major_pentatonic", "vii°"), [2]);
+});
+
+test("parent-harmony roots and approach tones use harmony-scale semitones", () => {
+  assert.equal(chordRootInterval("major_pentatonic", "V"), 7);
+  assert.equal(approachDegree(0, getScale("ionian")), 11);
+});
+
+test("major pentatonic chord scoring compares lead and chord pitch classes", () => {
+  const ctx = { scaleId: "major_pentatonic", section: "b", sectionBar: 0, tension: 0.4, memory: { 5: 1 } };
+  assert.ok(scoreChord(6, ctx) > scoreChord(4, ctx));
+  assert.ok(scoreChord(6, ctx) > scoreChord(5, ctx));
+});
+
+test("all nine five- and six-note scales retain their specified interval-based lead roles", () => {
   const expected = {
-    egyptian: { tonic: [1, 2, 4], intervals: [0, 2, 7], functions: [1, 3, 4, 5] },
-    major_pentatonic: { tonic: [1, 3, 4], intervals: [0, 4, 7], functions: [1, 3, 4, 5] },
-    minor_pentatonic: { tonic: [1, 2, 4], intervals: [0, 3, 7], functions: [1, 3, 4, 5] },
-    yo: { tonic: [1, 2, 4], intervals: [0, 2, 7], functions: [1, 3, 4, 5] },
-    in_sen: { tonic: [1, 3, 4], intervals: [0, 5, 7], functions: [1, 3, 4, 5] },
-    hirajoshi: { tonic: [1, 3, 4], intervals: [0, 3, 7], functions: [1, 3, 4, 5] },
-    ryukyu: { tonic: [1, 2, 4], intervals: [0, 4, 7], functions: [1, 3, 4, 5] },
-    blues: { tonic: [1, 2, 5], intervals: [0, 3, 7], functions: [1, 3, 5, 6] },
-    whole_tone: { tonic: [1, 3, 5], intervals: [0, 4, 8], functions: [1, 3, 4, 5] },
+    egyptian: { stable: [1, 2, 4], intervals: [0, 2, 7] },
+    major_pentatonic: { stable: [1, 3, 4], intervals: [0, 4, 7] },
+    minor_pentatonic: { stable: [1, 2, 4], intervals: [0, 3, 7] },
+    yo: { stable: [1, 2, 4], intervals: [0, 2, 7] },
+    in_sen: { stable: [1, 3, 4], intervals: [0, 5, 7] },
+    hirajoshi: { stable: [1, 3, 4], intervals: [0, 3, 7] },
+    ryukyu: { stable: [1, 2, 4], intervals: [0, 4, 7] },
+    blues: { stable: [1, 2, 5], intervals: [0, 3, 7] },
+    whole_tone: { stable: [1, 3, 5], intervals: [0, 4, 8] },
   };
   Object.entries(expected).forEach(([scaleId, values]) => {
     const scale = SCALES[scaleId];
-    const tonic = tonicChordForScale(scaleId);
-    assert.deepEqual(chordDegreeNotes(scaleId, tonic), values.tonic, scaleId);
-    assert.deepEqual(values.tonic.map((degree) => scale.intervals[degree - 1]), values.intervals, scaleId);
-    assert.deepEqual(Object.values(chordDegrees(scaleId)), values.functions, scaleId);
+    assert.deepEqual(scale.roles.stable, values.stable, scaleId);
+    assert.deepEqual(values.stable.map((degree) => scale.intervals[degree - 1]), values.intervals, scaleId);
   });
 });
 
 test("short-scale chord choices use the shared section skeleton", () => {
-  const rootForPosition = (sectionBar) => chordDegreeNotes("egyptian", chooseChord({
+  const rootForPosition = (sectionBar) => chordRootInterval("egyptian", chooseChord({
     scaleId: "egyptian", section: "a", sectionBar, tension: 0.4, memory: {},
-  }))[0];
-  assert.deepEqual([0, 1, 2, 3].map(rootForPosition), [1, 1, 3, 4]);
+  }));
+  assert.deepEqual([0, 1, 2, 3].map(rootForPosition), [0, 0, 5, 10]);
 });
 
 test("all twelve seven-note scales retain their legacy chord degrees and tonic triad", () => {
@@ -212,17 +269,23 @@ test("all twelve seven-note scales retain their legacy chord degrees and tonic t
 test("egyptian stable degrees drive a complete 26-key allocation and tonic MIDI chord", () => {
   assert.deepEqual(SCALES.egyptian.roles.stable, [1, 2, 4]);
   assert.equal(Object.values(allocateKeys(SCALES.egyptian.roles)).reduce((sum, count) => sum + count, 0), 26);
-  assert.deepEqual(chordMidiNotes("daylight", "egyptian", tonicChordForScale("egyptian")), [60, 62, 67]);
+  assert.deepEqual(chordMidiNotes("daylight", "egyptian", tonicChordForScale("egyptian")), [60, 63, 67]);
 });
 
-test("all 21 scales cover every degree and produce valid key and chord allocations", () => {
+test("all 21 scales cover every lead degree and produce valid harmony chords for every degree", () => {
   assert.equal(Object.keys(SCALES).length, 21);
   Object.values(SCALES).forEach((scale) => {
     const assignedDegrees = Object.values(scale.roles).flat().sort((left, right) => left - right);
     assert.deepEqual(assignedDegrees, Array.from({ length: scale.intervals.length }, (_, index) => index + 1), scale.id);
     assert.equal(Object.values(allocateKeys(scale.roles)).reduce((sum, count) => sum + count, 0), 26, scale.id);
-    const chords = [0, 1, 2, 3].map((bar) => chordForBar(scale.id, bar, 0.4));
-    chords.forEach((chord) => assert.equal(chordDegreeNotes(scale.id, chord).length, 3, scale.id));
+    assert.doesNotThrow(() => chooseChord({
+      scaleId: scale.id, section: "a", sectionBar: 0, tension: 0.4, memory: {},
+    }), scale.id);
+    const harmonyDegreeCount = getScale(harmonyScaleId(scale.id)).intervals.length;
+    for (let degree = 1; degree <= harmonyDegreeCount; degree += 1) {
+      const chord = chordLabel(scale.id, degree);
+      assert.equal(chordMidiNotes("daylight", scale.id, chord).length, 3, `${scale.id} ${degree}`);
+    }
     assert.equal(Object.keys(createLayout(42, "daylight", scale.id).keys).length, 26, scale.id);
   });
 });

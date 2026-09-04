@@ -4,6 +4,7 @@ import {
   approachDegree,
   chordDegreeNotes,
   chordMidiNotes,
+  chordRootInterval,
   chordRootMidi,
   chordToneWeight,
   chooseChord,
@@ -11,6 +12,7 @@ import {
   decayTension,
   getScale,
   getWorld,
+  harmonyScaleId,
   hatForStep,
   hatSwingSeconds,
   isResolution,
@@ -474,9 +476,8 @@ function scheduleAccompanimentStep(step) {
   } else if (stepInBar === 14) {
     if (barIndex + 1 < PERFORMANCE.bars) nextChord = chooseNextChord(barIndex, beat, currentTension);
     else nextChord = tonicChordForScale(layout.scaleId);
-    const nextRootDegree = chordDegreeNotes(layout.scaleId, nextChord)[0];
-    const nextRootSemitone = getScale(layout.scaleId).intervals[nextRootDegree - 1];
-    const approach = approachDegree(nextRootSemitone, getScale(layout.scaleId));
+    const nextRootSemitone = chordRootInterval(layout.scaleId, nextChord);
+    const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(layout.scaleId)));
     const approachPitchClass = (world.rootMidi + approach) % 12;
     synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
   }

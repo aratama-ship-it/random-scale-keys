@@ -1,12 +1,13 @@
 import {
   approachDegree,
-  chordDegreeNotes,
   chordMidiNotes,
+  chordRootInterval,
   chordRootMidi,
   chooseChord,
   decayTension,
   getScale,
   getWorld,
+  harmonyScaleId,
   hatForStep,
   hatSwingSeconds,
   kickForStep,
@@ -208,9 +209,8 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       }
     } else if (stepInBar === 14) {
       const nextChord = chordPlan[barIndex + 1]?.chordName ?? tonicChordForScale(scaleId);
-      const nextRootDegree = chordDegreeNotes(scaleId, nextChord)[0];
-      const nextRootSemitone = getScale(scaleId).intervals[nextRootDegree - 1];
-      const approach = approachDegree(nextRootSemitone, getScale(scaleId));
+      const nextRootSemitone = chordRootInterval(scaleId, nextChord);
+      const approach = approachDegree(nextRootSemitone, getScale(harmonyScaleId(scaleId)));
       const approachPitchClass = (world.rootMidi + approach) % 12;
       synth.scheduleBass(nearestMidiForPitchClass(approachPitchClass, thirdBeatBass), when, 0.28, 0.7);
     }

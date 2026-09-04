@@ -52,6 +52,16 @@ const SCALE_DEFINITIONS = Object.freeze([
 const ROLE_ORDER = Object.freeze(["stable", "floating", "tension"]);
 const ROLE_DELTA = Object.freeze({ stable: -0.3, floating: 0.05, tension: 0.22 });
 const ROMAN_NUMERALS = Object.freeze(["I", "II", "III", "IV", "V", "VI", "VII"]);
+export const HARMONY_PARENT = Object.freeze({
+  major_pentatonic: "ionian",
+  minor_pentatonic: "aeolian",
+  blues: "aeolian",
+  yo: "ionian",
+  egyptian: "dorian",
+  in_sen: "phrygian",
+  hirajoshi: "aeolian",
+  ryukyu: "ionian",
+});
 const FUNCTION_PATTERN = Object.freeze({
   intro: Object.freeze(["tonic", "tonic", "tonic", "subdominant"]),
   a: Object.freeze(["tonic", "tonic", "subdominant", "dominant"]),
@@ -201,6 +211,11 @@ export function getScale(scaleId) {
   return SCALES[scaleId];
 }
 
+export function harmonyScaleId(scaleId) {
+  getScale(scaleId);
+  return HARMONY_PARENT[scaleId] ?? scaleId;
+}
+
 export function resolveScaleId(worldId, scaleId) {
   const world = getWorld(worldId);
   return Object.hasOwn(SCALES, scaleId) ? scaleId : world.defaultScaleId;
@@ -228,17 +243,10 @@ export function midiForDegree(worldId, scaleId, degree, octave = 0) {
 }
 
 function triadForDegree(scaleId, degree) {
-  const scale = getScale(scaleId);
+  const scale = getScale(harmonyScaleId(scaleId));
   const count = scale.intervals.length;
   if (!Number.isInteger(degree) || degree < 1 || degree > count) {
     throw new RangeError(`Invalid scale degree: ${degree}`);
-  }
-  if (count < 7 && degree === 1) {
-    const degrees = tonicDegrees(scale.intervals);
-    return {
-      degrees,
-      intervals: degrees.map((tonicDegree) => scale.intervals[tonicDegree - 1]),
-    };
   }
   const offsets = [0, 2, 4];
   return {
@@ -262,7 +270,7 @@ export function chordLabel(scaleId, degree) {
 }
 
 function degreeForChordLabel(scaleId, label) {
-  const scale = getScale(scaleId);
+  const scale = getScale(harmonyScaleId(scaleId));
   const degree = Array.from({ length: scale.intervals.length }, (_, index) => index + 1)
     .find((candidate) => chordLabel(scaleId, candidate) === label);
   if (!degree) throw new RangeError(`Unknown chord ${label} for ${scaleId}`);
@@ -361,17 +369,19 @@ function functionForPosition(section, sectionBar) {
 
 export function scoreChord(candidateDegree, ctx) {
   const scaleId = scaleIdFromScaleOrWorld(ctx.scaleId ?? ctx.worldId);
-  const scale = getScale(scaleId);
-  if (!Number.isInteger(candidateDegree) || candidateDegree < 1 || candidateDegree > scale.intervals.length) {
+  const leadScale = getScale(scaleId);
+  const harmonyScale = getScale(harmonyScaleId(scaleId));
+  if (!Number.isInteger(candidateDegree) || candidateDegree < 1 || candidateDegree > harmonyScale.intervals.length) {
     throw new RangeError(`Invalid chord degree: ${candidateDegree}`);
   }
   const functions = chordDegrees(scaleId);
   const targetFunction = functionForPosition(ctx.section, ctx.sectionBar ?? ctx.barIndex ?? 0);
-  const chordNotes = triadForDegree(scaleId, candidateDegree).degrees;
+  const chordPitchClassSet = new Set(chordPitchClasses(scaleId, candidateDegree));
   const memory = ctx.memory ?? noteMemory(ctx.events ?? [], ctx.decisionBeat ?? 0);
-  const fit = Object.entries(memory).reduce((sum, [degree, weight]) => (
-    sum + weight * (chordNotes.includes(Number(degree)) ? 1 : -0.5)
-  ), 0);
+  const fit = Object.entries(memory).reduce((sum, [degree, weight]) => {
+    const pitchClass = leadScale.intervals[Number(degree) - 1] % 12;
+    return sum + weight * (chordPitchClassSet.has(pitchClass) ? 1 : -0.5);
+  }, 0);
   const functionBias = (candidateDegree === functions[targetFunction] ? 0.6 : 0)
     + (candidateDegree === functions.tonic ? 0.15 : 0);
   const tonicPitchClass = ctx.tonicPitchClass ?? 0;
@@ -393,7 +403,7 @@ export function scoreChord(candidateDegree, ctx) {
 export function chooseChord(ctx) {
   const scaleId = scaleIdFromScaleOrWorld(ctx.scaleId ?? ctx.worldId);
   if (ctx.resolution) return tonicChordForScale(scaleId);
-  const candidates = Array.from({ length: getScale(scaleId).intervals.length }, (_, index) => index + 1);
+  const candidates = Array.from({ length: getScale(harmonyScaleId(scaleId)).intervals.length }, (_, index) => index + 1);
   candidates.sort((left, right) => scoreChord(right, ctx) - scoreChord(left, ctx) || left - right);
   return chordLabel(scaleId, candidates[0]);
 }
@@ -422,23 +432,27 @@ export function approachDegree(nextRootSemitone, scale) {
 }
 
 export function chordDegreeNotes(scaleId, chordName) {
-  return triadForDegree(scaleId, degreeForChordLabel(scaleId, chordName)).degrees;
+  const chordPitchClassSet = new Set(chordPitchClasses(scaleId, degreeForChordLabel(scaleId, chordName)));
+  const degrees = getScale(scaleId).intervals
+    .map((interval, index) => ({ degree: index + 1, pitchClass: interval % 12 }))
+    .filter(({ pitchClass }) => chordPitchClassSet.has(pitchClass))
+    .map(({ degree }) => degree);
+  return degrees.length ? degrees : [1];
 }
 
 export function chordMidiNotes(worldId, scaleId, chordName, octave = 0) {
-  const degrees = chordDegreeNotes(scaleId, chordName);
-  let previous = -Infinity;
-  return degrees.map((degree) => {
-    let midi = midiForDegree(worldId, scaleId, degree, octave);
-    while (midi <= previous) midi += 12;
-    previous = midi;
-    return midi;
-  });
+  const world = getWorld(worldId);
+  return triadForDegree(scaleId, degreeForChordLabel(scaleId, chordName)).intervals
+    .map((interval) => world.rootMidi + interval + octave * 12);
+}
+
+export function chordRootInterval(scaleId, chordName) {
+  const degree = degreeForChordLabel(scaleId, chordName);
+  return triadForDegree(scaleId, degree).intervals[0] % 12;
 }
 
 export function chordRootMidi(worldId, scaleId, chordName, octaveNumber = 2) {
-  const [rootDegree] = chordDegreeNotes(scaleId, chordName);
-  const pitchClass = midiForDegree(worldId, scaleId, rootDegree) % 12;
+  const pitchClass = (getWorld(worldId).rootMidi + chordRootInterval(scaleId, chordName)) % 12;
   return (octaveNumber + 1) * 12 + pitchClass;
 }
 
@@ -502,7 +516,7 @@ export function tonicChordForWorld(worldId) {
 
 export function chordDegrees(scaleOrWorldId) {
   const scaleId = scaleIdFromScaleOrWorld(scaleOrWorldId);
-  const scale = getScale(scaleId);
+  const scale = getScale(harmonyScaleId(scaleId));
   const count = scale.intervals.length;
   if (count >= 7) {
     return {
@@ -547,7 +561,7 @@ export function chordForBar(scaleOrWorldId, barIndex, tension) {
   if (!Number.isInteger(barIndex) || barIndex < 0) {
     throw new RangeError(`Invalid bar index: ${barIndex}`);
   }
-  const scale = getScale(scaleId);
+  const scale = getScale(harmonyScaleId(scaleId));
   const degrees = chordDegrees(scaleId);
   const position = barIndex % 4;
   if (scale.intervals.length < 7) {
