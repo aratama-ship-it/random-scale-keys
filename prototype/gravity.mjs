@@ -1,6 +1,11 @@
 export const KEY_CODES = Object.freeze(
   Array.from({ length: 26 }, (_, index) => `Key${String.fromCharCode(65 + index)}`),
 );
+export const KEY_ROWS = Object.freeze(["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
+export const SIMPLE_ROW_INDEX = 1;
+export const SIMPLE_ROW_CODES = Object.freeze(
+  [...KEY_ROWS[SIMPLE_ROW_INDEX]].map((letter) => `Key${letter}`),
+);
 export const KEY_NAMES = Object.freeze(["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"]);
 
 export const EFFECT_COUNTS = Object.freeze({ none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
@@ -223,9 +228,28 @@ function expandedCounts(counts) {
   return Object.entries(counts).flatMap(([value, count]) => Array(count).fill(value));
 }
 
-function balancedDegrees(degrees, count, random) {
+function balancedDegrees(degrees, count, random, maximumCounts = {}) {
   if (count === 0) return [];
   if (degrees.length === 0) throw new RangeError("Cannot allocate keys to an empty role");
+  const cappedDegrees = degrees.filter((degree) => Object.hasOwn(maximumCounts, degree));
+  if (cappedDegrees.length) {
+    const capped = cappedDegrees.flatMap((degree) => {
+      const maximum = maximumCounts[degree];
+      if (!Number.isInteger(maximum) || maximum < 0) {
+        throw new RangeError(`Invalid maximum count for degree ${degree}: ${maximum}`);
+      }
+      return Array(Math.min(maximum, count)).fill(degree);
+    });
+    const uncappedDegrees = degrees.filter((degree) => !Object.hasOwn(maximumCounts, degree));
+    const remainingCount = count - capped.length;
+    if (remainingCount > 0 && uncappedDegrees.length === 0) {
+      throw new RangeError("Degree limits cannot fill the requested key count");
+    }
+    return shuffled([
+      ...capped.slice(0, count),
+      ...balancedDegrees(uncappedDegrees, Math.max(0, remainingCount), random),
+    ], random);
+  }
   const result = [];
   while (result.length + degrees.length <= count) {
     result.push(...shuffled(degrees, random));
@@ -685,14 +709,25 @@ export function createLayout(seed, worldId, requestedScaleId, keyChoice) {
   const scale = getScale(scaleId);
   const roleCounts = allocateKeys(scale.roles);
   const roles = shuffled(expandedCounts(roleCounts), random);
-  const effects = shuffled(expandedCounts(EFFECT_COUNTS), random);
+  const remainingEffectCounts = {
+    ...EFFECT_COUNTS,
+    none: EFFECT_COUNTS.none - SIMPLE_ROW_CODES.length,
+  };
+  const effects = shuffled(expandedCounts(remainingEffectCounts), random);
   const degreesByRole = Object.fromEntries(
     Object.entries(roleCounts).map(([role, count]) => [
       role,
-      balancedDegrees(scale.roles[role], count, random),
+      balancedDegrees(
+        scale.roles[role],
+        count,
+        random,
+        scale.roles[role].length > 1 && scale.roles[role].includes(7) ? { 7: 1 } : {},
+      ),
     ]),
   );
   const roleOffsets = { stable: 0, floating: 0, tension: 0 };
+  const simpleRowCodeSet = new Set(SIMPLE_ROW_CODES);
+  let effectOffset = 0;
   const keys = {};
 
   KEY_CODES.forEach((code, index) => {
@@ -705,7 +740,7 @@ export function createLayout(seed, worldId, requestedScaleId, keyChoice) {
       octave,
       midi: midiForDegreeFromRoot(rootMidi, scaleId, degree, octave),
       role,
-      effect: effects[index],
+      effect: simpleRowCodeSet.has(code) ? "none" : effects[effectOffset++],
     };
   });
 

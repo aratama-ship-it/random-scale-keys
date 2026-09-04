@@ -14,8 +14,10 @@ import {
   EFFECT_COUNTS,
   KEY_CODES,
   KEY_NAMES,
-  ROLE_COUNTS,
+  KEY_ROWS,
   SCALES,
+  SIMPLE_ROW_CODES,
+  SIMPLE_ROW_INDEX,
   chordDegreeNotes,
   chordDegrees,
   chordForBar,
@@ -52,6 +54,10 @@ import {
 } from "../gravity.mjs";
 
 const melodyNote = (degree, octave, midi) => ({ degree, octave, midi });
+const countBy = (assignments, field) => assignments.reduce((result, assignment) => {
+  result[assignment[field]] = (result[assignment[field]] ?? 0) + 1;
+  return result;
+}, {});
 
 test("melodicGravity removes ionian tritones in both directions", () => {
   assert.deepEqual(
@@ -169,36 +175,90 @@ test("root-based note and chord helpers transpose without changing the legacy wr
   assert.equal(chordRootMidiFromRoot(57, "aeolian", "i", 2), chordRootMidi("night", "aeolian", "i", 2));
 });
 
-test("createLayout assigns all keys with exact role and effect counts", () => {
-  const layout = createLayout(42, "daylight");
+test("all scale layouts keep exact role and effect counts with a simple home row", () => {
+  assert.deepEqual(EFFECT_COUNTS, { none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
   assert.equal(Object.values(EFFECT_COUNTS).reduce((sum, value) => sum + value, 0), 26);
-  assert.deepEqual(Object.keys(layout.keys).sort(), [...KEY_CODES].sort());
-  const count = (field) => Object.values(layout.keys).reduce((result, key) => {
-    result[key[field]] = (result[key[field]] ?? 0) + 1;
-    return result;
-  }, {});
-  assert.deepEqual(count("role"), allocateKeys(SCALES.ionian.roles));
-  assert.deepEqual(count("effect"), EFFECT_COUNTS);
-  for (const role of Object.keys(ROLE_COUNTS)) {
-    const degreeCounts = Object.values(layout.keys)
-      .filter((key) => key.role === role)
-      .reduce((result, key) => ({ ...result, [key.degree]: (result[key.degree] ?? 0) + 1 }), {});
-    const values = Object.values(degreeCounts);
-    assert.ok(Math.max(...values) - Math.min(...values) <= 1);
+  assert.deepEqual(KEY_ROWS, ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
+  assert.equal(SIMPLE_ROW_INDEX, 1);
+  assert.deepEqual(SIMPLE_ROW_CODES, [...KEY_ROWS[SIMPLE_ROW_INDEX]].map((letter) => `Key${letter}`));
+  const nonSimpleEffectCounts = { ...EFFECT_COUNTS, none: EFFECT_COUNTS.none - SIMPLE_ROW_CODES.length };
+
+  for (const scale of Object.values(SCALES)) {
+    for (const worldId of ["daylight", "night"]) {
+      for (const seed of [0, 1, 42, 123456, "fixed"]) {
+        const layout = createLayout(seed, worldId, scale.id);
+        const assignments = Object.values(layout.keys);
+        const roleCounts = allocateKeys(scale.roles);
+        assert.deepEqual(Object.keys(layout.keys).sort(), [...KEY_CODES].sort(), `${scale.id} ${worldId} ${seed}`);
+        assert.equal(assignments.length, 26, `${scale.id} ${worldId} ${seed}`);
+        assert.deepEqual(
+          { ...Object.fromEntries(Object.keys(roleCounts).map((role) => [role, 0])), ...countBy(assignments, "role") },
+          roleCounts,
+          `${scale.id} ${worldId} ${seed}`,
+        );
+        assert.deepEqual(countBy(assignments, "effect"), EFFECT_COUNTS, `${scale.id} ${worldId} ${seed}`);
+        assert.ok(
+          SIMPLE_ROW_CODES.every((code) => layout.keys[code].effect === "none"),
+          `${scale.id} ${worldId} ${seed}`,
+        );
+        assert.deepEqual(
+          countBy(KEY_CODES.filter((code) => !SIMPLE_ROW_CODES.includes(code)).map((code) => layout.keys[code]), "effect"),
+          nonSimpleEffectCounts,
+          `${scale.id} ${worldId} ${seed}`,
+        );
+        assert.deepEqual(layout, createLayout(seed, worldId, scale.id), `${scale.id} ${worldId} ${seed}`);
+      }
+    }
   }
 });
 
-test("default-key createLayout preserves the full v0.13.0 assignment for seed 42", () => {
+test("seven-note scales cap degree 7 at one key except for hijaz", () => {
+  const sevenNoteScales = Object.values(SCALES).filter((scale) => scale.intervals.length === 7);
+  assert.equal(sevenNoteScales.length, 12);
+  const cappedScales = sevenNoteScales.filter((scale) => scale.id !== "hijaz");
+  assert.equal(cappedScales.length, 11);
+  for (const scale of cappedScales) {
+    const [degreeSevenRole, roleDegrees] = Object.entries(scale.roles)
+      .find(([, degrees]) => degrees.includes(7));
+    const uncappedDegrees = roleDegrees.filter((degree) => degree !== 7);
+    for (const seed of [0, 42, 123456, "fixed"]) {
+      const assignments = Object.values(createLayout(seed, "daylight", scale.id).keys);
+      assert.equal(assignments.filter(({ degree }) => degree === 7).length, 1, `${scale.id} ${seed}`);
+      const uncappedCounts = uncappedDegrees.map((degree) => assignments
+        .filter(({ role, degree: assignedDegree }) => role === degreeSevenRole && assignedDegree === degree).length);
+      assert.ok(Math.max(...uncappedCounts) - Math.min(...uncappedCounts) <= 1, `${scale.id} ${seed}`);
+    }
+  }
+
+  for (const seed of [0, 42, 123456, "fixed"]) {
+    const assignments = Object.values(createLayout(seed, "daylight", "hijaz").keys);
+    assert.equal(
+      assignments.filter(({ degree }) => degree === 7).length,
+      allocateKeys(SCALES.hijaz.roles).floating,
+      `hijaz ${seed}`,
+    );
+  }
+
+  Object.values(SCALES).filter((scale) => scale.intervals.length < 7).forEach((scale) => {
+    assert.equal(
+      Object.values(createLayout(42, "daylight", scale.id).keys).some(({ degree }) => degree === 7),
+      false,
+      scale.id,
+    );
+  });
+});
+
+test("default-key createLayout preserves the full v0.17.0 assignment for seed 42", () => {
   const expected = {
-    KeyA: [1, "stable", "none", -1, 48], KeyB: [5, "stable", "arpeggio", 0, 67], KeyC: [5, "stable", "octave", 0, 67],
-    KeyD: [2, "floating", "delay", -1, 50], KeyE: [1, "stable", "delay", 0, 60], KeyF: [6, "floating", "arpeggio", 1, 81],
-    KeyG: [6, "floating", "octave", 1, 81], KeyH: [3, "stable", "none", 0, 64], KeyI: [2, "floating", "arpeggio", 0, 62],
-    KeyJ: [1, "stable", "none", 1, 72], KeyK: [7, "tension", "none", 0, 71], KeyL: [3, "stable", "stutter", 1, 76],
-    KeyM: [2, "floating", "sweep", 0, 62], KeyN: [5, "stable", "sweep", -1, 55], KeyO: [6, "floating", "stutter", -1, 57],
-    KeyP: [4, "tension", "none", 0, 65], KeyQ: [3, "stable", "none", 0, 64], KeyR: [7, "tension", "delay", 0, 71],
-    KeyS: [4, "tension", "none", -1, 53], KeyT: [1, "stable", "sweep", 0, 60], KeyU: [7, "tension", "none", 0, 71],
-    KeyV: [5, "stable", "none", -1, 55], KeyW: [7, "tension", "delay", 1, 83], KeyX: [4, "tension", "octave", 0, 65],
-    KeyY: [3, "stable", "none", 1, 76], KeyZ: [6, "floating", "none", 0, 69],
+    KeyA: [1, "stable", "none", -1, 48], KeyB: [1, "stable", "sweep", 0, 60], KeyC: [5, "stable", "octave", 0, 67],
+    KeyD: [2, "floating", "none", 1, 74], KeyE: [5, "stable", "arpeggio", -1, 55], KeyF: [2, "floating", "none", 1, 74],
+    KeyG: [6, "floating", "none", 1, 81], KeyH: [3, "stable", "none", 0, 64], KeyI: [2, "floating", "sweep", -1, 50],
+    KeyJ: [3, "stable", "none", 0, 64], KeyK: [4, "tension", "none", 0, 65], KeyL: [3, "stable", "none", -1, 52],
+    KeyM: [6, "floating", "delay", 0, 69], KeyN: [5, "stable", "stutter", 1, 79], KeyO: [2, "floating", "delay", 1, 74],
+    KeyP: [7, "tension", "arpeggio", 0, 71], KeyQ: [5, "stable", "stutter", 0, 67], KeyR: [4, "tension", "delay", 1, 77],
+    KeyS: [4, "tension", "none", 0, 65], KeyT: [1, "stable", "octave", 1, 72], KeyU: [4, "tension", "arpeggio", 0, 65],
+    KeyV: [1, "stable", "none", -1, 48], KeyW: [4, "tension", "sweep", -1, 53], KeyX: [4, "tension", "octave", 0, 65],
+    KeyY: [3, "stable", "delay", 0, 64], KeyZ: [6, "floating", "none", 0, 69],
   };
   const layout = createLayout(42, "daylight");
   assert.equal(layout.rootMidi, 60);

@@ -19,6 +19,7 @@ import {
   harmonyScaleId,
   isResolution,
   KEY_NAMES,
+  KEY_ROWS,
   LEAD_TIMBRES,
   midiForDegreeFromRoot,
   noteMemory,
@@ -74,7 +75,6 @@ const PERFORMANCE = Object.freeze({
   answerVisibleMs: 1000,
   diagnosticDurationMs: 3000,
 });
-const KEY_ROWS = Object.freeze(["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
 const SFX_ROW = "1234567890";
 const ROLE_MARKS = Object.freeze({ stable: "●", floating: "◐", tension: "▲" });
 const EFFECT_LABELS = Object.freeze({ none: "—", delay: "dly", sweep: "swp", octave: "oct", stutter: "stt", arpeggio: "arp" });
