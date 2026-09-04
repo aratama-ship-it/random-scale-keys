@@ -6,8 +6,9 @@ PCキーボードのA〜Zに、スケール音とエフェクトをランダム�
 - 企画の正本: `obsidian-vault/ideas/2026-09-03_ランダム鍵盤で曲になるアプリ_ブレスト.md`
 - 関連（所有境界を分ける）: `apps/utility-app/juggling-music-reactor/`（ジャグリング動作→音楽。イベント契約v0の正本）。
   本アプリは同契約のサブセットを使う。相互にファイルを書き換えない。
-- 状態（2026-09-04）: **app v0.11.0 のM10実装までローカルで完了**。21種のスケール選択、数字キーSFX、残り時間と進捗表示、
-  16小節の演奏、Motion SceneとテイクJSONの読み込み、テイクの再生、ミックスWAV、ステム3本、SMF Format 1、JSON書き出しに対応。
+- 状態（2026-09-04）: **app v0.12.0 のM11実装までローカルで完了**。21種のスケール選択、数字キーSFX、音色4種とShift切替、
+  長押しサステイン、残り時間と進捗表示、16小節の演奏、Motion SceneとテイクJSONの読み込み、テイクの再生、
+  ミックスWAV、ステム3本、SMF Format 1、JSON書き出しに対応。
 - 試聴用の公開（GitHub Pages）: https://aratama-ship-it.github.io/random-scale-keys/ （`prototype/` へ転送）。
   公開リポジトリには `prototype/`・README・PROJECT_NOTES だけを載せ、`design/`（判断用HTML・トークンシート・参照メモ）は
   `.gitignore` で除外する（tonescoreの前例に倣う）。
@@ -29,7 +30,7 @@ python3 -m http.server 8962 --bind 127.0.0.1
 実装計画（判断用HTML）: `http://127.0.0.1:8962/design/IMPLEMENTATION_PLAN_2026-09-03.html`
 （Claude Codeのプレビューでは `.claude/launch.json` の `random-scale-keys`＝同じ8962番で配信。`/` は `/prototype/` へ）
 
-## 起動（app v0.11.0、PC専用）
+## 起動（app v0.12.0、PC専用）
 
 上記と同じローカルサーバーを起動し、`http://127.0.0.1:8962/app/` を開く。
 
@@ -38,6 +39,10 @@ python3 -m http.server 8962 --bind 127.0.0.1
 効果は delay／sweep／octave／stutter／arpeggio。arpeggio は押した度数を起点に、音階上の1・3・5度を
 1拍3等分の3連符で上行する。v0.10.0では効果の配分が変わるため、同じseedでもv0.9.0とは効果の割当が変わるが、
 度数・役割・オクターブは変わらない。
+
+リード音色は電気ピアノ／ソウ／プラック／ベルの4種。通常音色とShift時の音色を選び、Shiftを押している間だけ
+後者へ切り替えられる。A〜Zを長押しすると、効果が none（—）／delay／sweep／octave の音は最大16秒まで伸びる。
+stutter／arpeggio は長押しサステインに対応しない。
 
 数字キーのSFXは固定配置で、A〜Zのランダム配置には影響しない。
 
@@ -49,8 +54,10 @@ python3 -m http.server 8962 --bind 127.0.0.1
 | 9 / 0 | tapestop | 0.5秒 / 1.0秒 |
 
 伴奏の自動SFXは、`bar 4/8/12` の step 0（5/9/13小節目の頭）に impact、`bar 3/7/11` の step 15（4/8/12小節目の末尾）に glitch が入る。
-数字キーSFXは lead ステム、自動SFXは accomp ステムに収録され、リバーブ／ディレイの fx ステムには送られない。
+数字キーSFXは lead ステム、自動SFXは accomp ステムに収録される。両方のリバーブ成分は fx ステムへ入り、ディレイには送られない。
 MIDIにはチャンネル3の `sfx` トラックを追加し、impact=36/37/38、zap=40/41/42、glitch=44/45、tapestop=47/48を使う。
+リードに使われた音色が1種なら従来どおり `lead` トラック、2種以上なら `lead:<timbre>` トラックへ音色別に分ける
+（いずれもチャンネル0）。
 
 ## 音階の定義について
 

@@ -6,6 +6,7 @@ import {
   diagnosticDisabledForState,
   fieldAt,
   formatParams,
+  holdRelease,
   lerpColor,
   marchingSquares,
   nextTakeSettingsDisabledForState,
@@ -69,6 +70,12 @@ test("remainingSeconds is integral, clamps before start, and never becomes negat
   assert.equal(remainingSeconds(27.1, 10, 50.4), 24);
   assert.equal(remainingSeconds(50.4, 10, 50.4), 0);
   assert.equal(remainingSeconds(60, 10, 50.4), 0);
+});
+
+test("holdRelease preserves natural length, follows a late release, and caps at the maximum", () => {
+  assert.deepEqual(holdRelease(10, 0.5, 10.2, 16), { releaseAt: 10.5, length: 0.5, held: false });
+  assert.deepEqual(holdRelease(10, 0.5, 12, 16), { releaseAt: 12, length: 2, held: true });
+  assert.deepEqual(holdRelease(10, 0.5, 30, 16), { releaseAt: 26, length: 16, held: true });
 });
 
 test("rowOffsetPx preserves the physical row ratios", () => {
@@ -148,6 +155,18 @@ test("validateTakeLog accepts SFX without note fields and rejects missing SFX fi
   assert.match(validateTakeLog(missingVariant).reason, /必須項目/);
 });
 
+test("validateTakeLog accepts optional timbre and held fields with their required types", () => {
+  const log = validTakeLog();
+  Object.assign(log.events[0], { timbre: "epiano", held: true });
+  assert.deepEqual(validateTakeLog(log), { ok: true });
+  const invalidTimbre = structuredClone(log);
+  invalidTimbre.events[0].timbre = 3;
+  assert.match(validateTakeLog(invalidTimbre).reason, /項目型/);
+  const invalidHeld = structuredClone(log);
+  invalidHeld.events[0].held = "yes";
+  assert.match(validateTakeLog(invalidHeld).reason, /項目型/);
+});
+
 test("pressTracker retains the maximum after keys are released", () => {
   const tracker = pressTracker();
   tracker.add("KeyA");
@@ -160,16 +179,23 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.11.0 waiting screen includes the performance tip, SFX legend, and cadence engine", async () => {
+test("v0.12.0 waiting screen includes timbre controls, the performance tip, SFX legend, and cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
-  assert.match(html, /random-scale-keys v0\.11\.0/);
+  const css = await readFile(new URL("../style.css", import.meta.url), "utf8");
+  assert.match(html, /random-scale-keys v0\.12\.0/);
+  assert.match(html, /id="timbre"/);
+  assert.match(html, /id="timbre-shift"/);
+  assert.match(main, /LEAD_TIMBRES\.map/);
+  assert.match(main, /TIMBRE_LABELS\[timbre\]/);
   assert.match(html, /効果: dly \/ swp \/ oct \/ stt \/ arp \/ —/);
   assert.match(html, /SFX: 1-3 imp \/ 4-6 zap \/ 7-8 glt \/ 9-0 tape/);
   assert.match(main, /arpeggio: "arp"/);
   assert.match(main, /key\.className = "key key-sfx"/);
   assert.match(html, /コツ: 同じキー付近を続けて使うとループ感が出ます。展開したいときは使う位置を少しずつずらします。/);
   assert.match(main, /performanceTip\.hidden = state !== "idle"/);
+  assert.match(main, /elements\.keyboard\.classList\.add\("shift"\)/);
+  assert.match(css, /\.keyboard\.shift \.key:not\(\.key-sfx\).*var\(--text-sub\)/);
   assert.equal(main.match(/engine: "accomp-v4"/g)?.length, 2);
   assert.match(main, /beat % 16 === 0 && beat > 0\s*\? 1\s*:/);
 });

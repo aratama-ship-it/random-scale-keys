@@ -12,6 +12,7 @@ import {
   chooseChord,
   createLayout,
   decayTension,
+  defaultTimbres,
   getScale,
   getWorld,
   harmonyScaleId,
@@ -19,6 +20,7 @@ import {
   hatSwingSeconds,
   isResolution,
   kickForStep,
+  LEAD_TIMBRES,
   midiForDegree,
   noteMemory,
   noteLengthFromInterval,
@@ -32,19 +34,21 @@ import {
   SFX_LABELS,
   sfxNoiseSeed,
   snareForStep,
+  TIMBRE_LABELS,
   tonicChordForScale,
   updateTension,
   velocityFromInterval,
   voiceLead,
 } from "../prototype/gravity.mjs";
 import { downloadTakeJson, scheduleRecordedTake } from "../prototype/render.js";
-import { createSynth } from "../prototype/synth.js";
+import { createSynth, HOLD_MAX_SECONDS } from "../prototype/synth.js";
 import { downloadTakeMidi } from "./midi.js";
 import { detectFormat, sceneToEvents } from "./scene-map.mjs";
 import { downloadMixWav, downloadStems } from "./stems.js";
 import {
   diagnosticDisabledForState,
   formatParams,
+  holdRelease,
   nextTakeSettingsDisabledForState,
   parseParams,
   pressTracker,
@@ -108,6 +112,8 @@ const elements = {
   loadError: document.querySelector("#load-error"),
   loadedTake: document.querySelector("#loaded-take"),
   tensionFill: document.querySelector("#tension-fill"),
+  timbre: document.querySelector("#timbre"),
+  timbreShift: document.querySelector("#timbre-shift"),
   stems: document.querySelector("#stems"),
   midi: document.querySelector("#midi"),
   progressFill: document.querySelector("#progress-fill"),
@@ -154,6 +160,7 @@ let diagnosticActive = false;
 let diagnosticKeys;
 let diagnosticTimer;
 const keyRects = new Map();
+const activeHolds = new Map();
 
 function randomSeed() {
   const values = new Uint32Array(1);
@@ -170,6 +177,27 @@ function normalizedSeed() {
 function selectedQuantize() {
   const division = { 4: 1, 8: 2, 16: 4 }[elements.quantize.value] ?? null;
   return { enabled: division !== null, division };
+}
+
+function selectedTimbres() {
+  return { main: elements.timbre.value, shift: elements.timbreShift.value };
+}
+
+function populateTimbreSelects() {
+  [elements.timbre, elements.timbreShift].forEach((select) => {
+    select.replaceChildren(...LEAD_TIMBRES.map((timbre) => {
+      const option = document.createElement("option");
+      option.value = timbre;
+      option.textContent = TIMBRE_LABELS[timbre];
+      return option;
+    }));
+  });
+}
+
+function resetTimbresForWorld() {
+  const timbres = defaultTimbres(elements.world.value);
+  elements.timbre.value = timbres.main;
+  elements.timbreShift.value = timbres.shift;
 }
 
 function updateUrl() {
@@ -259,7 +287,10 @@ function renderLayout() {
       key.innerHTML = `<span class="key-degree">${assignment.degree}</span><span class="key-meta">${ROLE_MARKS[assignment.role]} ${EFFECT_LABELS[assignment.effect]}</span>`;
       key.addEventListener("pointerdown", (event) => {
         event.preventDefault();
-        playCode(code, "pointer");
+        playCode(code, "pointer", elements.timbre.value);
+      });
+      ["pointerup", "pointercancel", "pointerleave"].forEach((type) => {
+        key.addEventListener(type, () => releaseHold(code, audioContext?.currentTime));
       });
       row.append(key);
     }
@@ -311,7 +342,7 @@ function renderState() {
   elements.performanceTip.hidden = state !== "idle";
   document.body.dataset.state = state;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
-  [elements.world, elements.scale, elements.quantize, elements.seed, elements.reroll]
+  [elements.world, elements.scale, elements.quantize, elements.timbre, elements.timbreShift, elements.seed, elements.reroll]
     .forEach((control) => { control.disabled = nextTakeSettingsDisabledForState(state); });
   elements.diagnose.disabled = diagnosticDisabledForState(state);
   elements.primary.disabled = (state === "idle" || state === "finished") && narrowScreen.matches;
@@ -439,8 +470,12 @@ function scheduleAnswerAtBoundary(beat, when, section) {
     resolution: false,
     sourceId: "gravity",
     section,
+    timbre: elements.timbre.value,
   };
-  synth.scheduleLead(event, when, event.length, event.velocity, "none", tension, { cutoffMinimum: section === "b" ? 1800 : 1200 });
+  synth.scheduleLead(event, when, event.length, event.velocity, "none", tension, {
+    cutoffMinimum: section === "b" ? 1800 : 1200,
+    timbre: event.timbre,
+  });
   takeLog.events.push(event);
   answerCount += 1;
   scheduleAnswerDisplay(degree, (when - audioContext.currentTime) * 1000);
@@ -604,6 +639,7 @@ async function beginTake(eventType) {
     bpm: world.bpm,
     bars: PERFORMANCE.bars,
     quantize: selectedQuantize(),
+    timbres: selectedTimbres(),
     events: [],
   };
   terrain.setTension(0);
@@ -615,6 +651,7 @@ async function beginTake(eventType) {
 }
 
 function markTakeFinished() {
+  releaseAllHolds(Math.min(audioContext?.currentTime ?? takeEnd, takeEnd));
   clearInterval(schedulerTimer);
   schedulerTimer = undefined;
   dispatch("TAKE_COMPLETE");
@@ -624,6 +661,7 @@ function markTakeFinished() {
 
 async function stopTake() {
   if (state !== "countin" && state !== "playing") return;
+  releaseAllHolds(Math.min(audioContext?.currentTime ?? takeEnd, takeEnd));
   await closeAudio();
   dispatch("STOP");
   terrain.end();
@@ -729,9 +767,10 @@ function cssDurationMs(name) {
   return raw.endsWith("ms") ? Number.parseFloat(raw) : Number.parseFloat(raw) * 1000;
 }
 
-function playCode(code, sourceId = "keyboard") {
+function playCode(code, sourceId = "keyboard", timbre = elements.timbre.value) {
   if (state !== "playing" || !audioContext || !layout?.keys[code]) return;
   if (audioContext.currentTime < takeStart || audioContext.currentTime >= takeEnd) return;
+  if (activeHolds.has(code)) return;
   const assignment = layout.keys[code];
   const now = audioContext.currentTime;
   const scheduledTime = takeLog.quantize.enabled
@@ -758,8 +797,6 @@ function playCode(code, sourceId = "keyboard") {
   lastPhysicalPressTime = now;
   if (resolution) pendingResolutionBeat = Math.floor(beat) + 1;
   synth.setReverbSend(0.2, scheduledTime, synth.beatSec * 0.5);
-  synth.scheduleLead(assignment, scheduledTime, length, velocity, assignment.effect, nextTension, { cutoffMinimum: section === "b" ? 1800 : 1200 });
-
   const loggedEvent = {
     time: scheduledTime - takeStart,
     beat,
@@ -776,13 +813,41 @@ function playCode(code, sourceId = "keyboard") {
     resolution,
     sourceId,
     section,
+    timbre,
   };
+  const handle = synth.scheduleLead(assignment, scheduledTime, length, velocity, assignment.effect, nextTension, {
+    cutoffMinimum: section === "b" ? 1800 : 1200,
+    timbre,
+    hold: "open",
+  });
   takeLog.events.push(loggedEvent);
+  if (handle) activeHolds.set(code, { handle, when: scheduledTime, length, event: loggedEvent });
   lastPressEvent = loggedEvent;
   const key = elements.keyboard.querySelector(`[data-code="${code}"]`);
   if (key) terrain.press(key.getBoundingClientRect(), assignment.role);
   setKeyPressed(code, true);
   setTimeout(() => setKeyPressed(code, false), cssDurationMs("--duration-press"));
+}
+
+function releaseHold(code, nowSec) {
+  const active = activeHolds.get(code);
+  if (!active || !Number.isFinite(nowSec)) return;
+  const result = holdRelease(active.when, active.length, nowSec, HOLD_MAX_SECONDS);
+  active.handle.release(result.releaseAt);
+  active.event.length = result.length;
+  if (result.held) active.event.held = true;
+  activeHolds.delete(code);
+}
+
+function releaseAllHolds(releaseAt) {
+  if (!Number.isFinite(releaseAt)) return;
+  activeHolds.forEach((active, code) => {
+    const cappedReleaseAt = Math.min(releaseAt, active.when + HOLD_MAX_SECONDS);
+    active.handle.release(cappedReleaseAt);
+    active.event.length = Math.max(0, cappedReleaseAt - active.when);
+    if (active.event.length > active.length + 1e-6) active.event.held = true;
+    activeHolds.delete(code);
+  });
 }
 
 function playSfx(code, sourceId = "keyboard") {
@@ -824,6 +889,10 @@ function handleKeyDown(event) {
     event.preventDefault();
     return;
   }
+  if (event.key === "Shift") {
+    elements.keyboard.classList.add("shift");
+    return;
+  }
   if (FORM_TAGS.has(document.activeElement?.tagName)) return;
   if (event.code === "Enter") {
     if (state === "countin" || state === "playing") {
@@ -844,8 +913,18 @@ function handleKeyDown(event) {
   if (!layout?.keys[event.code]) return;
   if (state === "playing") {
     event.preventDefault();
-    playCode(event.code);
+    playCode(event.code, "keyboard", event.shiftKey ? elements.timbreShift.value : elements.timbre.value);
   }
+}
+
+function handleKeyUp(event) {
+  if (diagnosticActive) {
+    diagnosticKeys.remove(event.code);
+    return;
+  }
+  if (event.key === "Shift") elements.keyboard.classList.remove("shift");
+  releaseHold(event.code, audioContext?.currentTime);
+  setKeyPressed(event.code, false);
 }
 
 function updateDisplay() {
@@ -898,10 +977,16 @@ function showError(error) {
 }
 
 function normalizeLoadedLog(log) {
+  const defaults = defaultTimbres(log.worldId);
+  const timbres = {
+    main: typeof log.timbres?.main === "string" ? log.timbres.main : defaults.main,
+    shift: typeof log.timbres?.shift === "string" ? log.timbres.shift : defaults.shift,
+  };
   return {
     ...log,
     engine: "accomp-v4",
     scaleId: resolveScaleId(log.worldId, log.scaleId),
+    timbres,
     events: log.events.map((event) => {
       const section = typeof event.section === "string"
         ? event.section
@@ -953,6 +1038,10 @@ function loadMotionScene(scene, filename = "") {
     bars: PERFORMANCE.bars,
     quantize: selectedQuantize(),
   });
+  takeLog.timbres = selectedTimbres();
+  takeLog.events = takeLog.events.map((event) => (
+    event.kind === "press" ? { ...event, timbre: takeLog.timbres.main } : event
+  ));
   const validation = validateTakeLog(takeLog);
   if (!validation.ok) throw new Error(validation.reason);
   loadedTakeFilename = filename;
@@ -988,6 +1077,8 @@ async function loadTakeFile(file) {
       loadedSceneSummary = "";
       elements.world.value = takeLog.worldId;
       elements.scale.value = takeLog.scaleId;
+      elements.timbre.value = takeLog.timbres.main;
+      elements.timbreShift.value = takeLog.timbres.shift;
       elements.seed.value = String(takeLog.seed);
       const quantizeValue = takeLog.quantize.enabled
         ? ({ 1: "4", 2: "8", 4: "16" }[takeLog.quantize.division] ?? "off")
@@ -1070,7 +1161,10 @@ elements.finishReroll.addEventListener("click", () => {
   elements.seed.value = randomSeed();
   rebuildLayout();
 });
-elements.world.addEventListener("change", () => rebuildLayout());
+elements.world.addEventListener("change", () => {
+  resetTimbresForWorld();
+  rebuildLayout();
+});
 elements.scale.addEventListener("change", () => rebuildLayout());
 elements.seed.addEventListener("change", () => rebuildLayout());
 elements.scenePlay.addEventListener("click", loadBundledScene);
@@ -1114,16 +1208,15 @@ elements.midi.addEventListener("click", () => {
   });
 });
 window.addEventListener("keydown", handleKeyDown);
-window.addEventListener("keyup", (event) => {
-  if (diagnosticActive) diagnosticKeys.remove(event.code);
-  else setKeyPressed(event.code, false);
-});
+window.addEventListener("keyup", handleKeyUp);
 window.addEventListener("resize", () => renderLayout());
 narrowScreen.addEventListener("change", renderState);
 
 const initial = parseParams(location.search);
+populateTimbreSelects();
 elements.world.value = initial.world;
 elements.scale.value = initial.scale;
+resetTimbresForWorld();
 elements.seed.value = initial.seed || randomSeed();
 rebuildLayout();
 renderState();

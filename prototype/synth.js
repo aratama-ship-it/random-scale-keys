@@ -3,6 +3,7 @@ import {
   arpeggioOffsets,
   chordMidiNotes,
   cutoffForTension,
+  defaultTimbres,
   getWorld,
   mulberry32,
   padDetuneForTension,
@@ -17,7 +18,11 @@ const ACCOMP_BUS_GAIN = 0.62;
 // SFX は専用バス。lead 用の 1.55 倍を掛けるとステムがクリップし、accomp 用でも到達小節のインパクトが目標を超えたため別定数（M10 実測で調整）
 const SFX_LEAD_BUS_GAIN = 0.6;
 const SFX_ACCOMP_BUS_GAIN = 0.3;
+const SFX_REVERB_SEND = 6.0;
+const SFX_ROOM_SEND = 1.0;
+const SFX_ROOM_WET = 1.0; // 0.6→1.0（実測で調整）
 const PAD_REVERB_MULTIPLIER = 1.2;
+export const HOLD_MAX_SECONDS = 16;
 
 function midiToFrequency(midi) {
   return 440 * 2 ** ((midi - 69) / 12);
@@ -40,6 +45,29 @@ function scheduleEnvelope(param, when, attack, decay, sustain, hold, release, pe
   return releaseStart + release;
 }
 
+function scheduleOpenEnvelope(param, when, attack, decay, sustain, peak = 1) {
+  const attackEnd = when + attack;
+  const decayEnd = attackEnd + decay;
+  param.setValueAtTime(MIN_GAIN, when);
+  param.exponentialRampToValueAtTime(Math.max(MIN_GAIN, peak), attackEnd);
+  param.exponentialRampToValueAtTime(Math.max(MIN_GAIN, peak * sustain), decayEnd);
+}
+
+function openEnvelopeRelease(param, releaseSeconds) {
+  let released = false;
+  return (whenSec) => {
+    if (released) return;
+    released = true;
+    if (typeof param.cancelAndHoldAtTime === "function") {
+      param.cancelAndHoldAtTime(whenSec);
+    } else {
+      param.cancelScheduledValues(whenSec);
+      param.setValueAtTime(Math.max(MIN_GAIN, param.value), whenSec);
+    }
+    param.exponentialRampToValueAtTime(MIN_GAIN, whenSec + releaseSeconds);
+  };
+}
+
 function makeImpulseResponse(context, random) {
   const duration = 3;
   const predelay = 0.02;
@@ -51,6 +79,23 @@ function makeImpulseResponse(context, random) {
       data[index] = time < predelay
         ? 0
         : (random() * 2 - 1) * Math.exp((-6 * (time - predelay)) / (duration - predelay));
+    }
+  }
+  return buffer;
+}
+
+export function makeSfxRoomImpulse(context, random) {
+  const duration = 1.4; // M11 実測で 0.9→1.4（尾が短すぎた）
+  const predelay = 0.01;
+  const decay = 0.30; // 0.18→0.30
+  const buffer = context.createBuffer(2, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  for (let channel = 0; channel < 2; channel += 1) {
+    const data = buffer.getChannelData(channel);
+    for (let index = 0; index < data.length; index += 1) {
+      const time = index / context.sampleRate;
+      data[index] = time < predelay
+        ? 0
+        : (random() * 2 - 1) * Math.exp(-time / decay);
     }
   }
   return buffer;
@@ -101,6 +146,7 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   const isStem = stem !== null;
   const impulseRandom = mulberry32(seed);
   const drumRandom = mulberry32(seed + 1);
+  const pluckNoiseBuffer = whiteNoiseBuffer(context, 0.006, mulberry32(3));
   const master = context.createGain();
   const compressor = context.createDynamicsCompressor();
   const saturator = context.createWaveShaper();
@@ -115,6 +161,13 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   const accompBus = context.createGain();
   const leadSfxBus = context.createGain();
   const accompSfxBus = context.createGain();
+  const sfxReverbSend = context.createGain();
+  const sfxRoomSendLead = context.createGain();
+  const sfxRoomLead = context.createConvolver();
+  const sfxRoomWetLead = context.createGain();
+  const sfxRoomSendAccomp = context.createGain();
+  const sfxRoomAccomp = context.createConvolver();
+  const sfxRoomWetAccomp = context.createGain();
   const clickBus = context.createGain();
   const leadDryOutput = context.createGain();
   const accompDryOutput = context.createGain();
@@ -174,8 +227,27 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   accompBus.connect(isStem ? accompDryOutput : master);
   leadSfxBus.gain.value = SFX_LEAD_BUS_GAIN;
   leadSfxBus.connect(isStem ? leadDryOutput : master);
+  leadSfxBus.connect(sfxReverbSend);
+  leadSfxBus.connect(sfxRoomSendLead);
   accompSfxBus.gain.value = SFX_ACCOMP_BUS_GAIN;
   accompSfxBus.connect(isStem ? accompDryOutput : master);
+  accompSfxBus.connect(sfxReverbSend);
+  accompSfxBus.connect(sfxRoomSendAccomp);
+  sfxReverbSend.gain.value = SFX_REVERB_SEND;
+  sfxReverbSend.connect(reverbInput);
+  const sfxRoomImpulse = makeSfxRoomImpulse(context, mulberry32(seed + 7));
+  sfxRoomSendLead.gain.value = SFX_ROOM_SEND;
+  sfxRoomLead.buffer = sfxRoomImpulse;
+  sfxRoomWetLead.gain.value = SFX_ROOM_WET;
+  sfxRoomSendLead.connect(sfxRoomLead);
+  sfxRoomLead.connect(sfxRoomWetLead);
+  sfxRoomWetLead.connect(isStem ? leadDryOutput : master);
+  sfxRoomSendAccomp.gain.value = SFX_ROOM_SEND;
+  sfxRoomAccomp.buffer = sfxRoomImpulse;
+  sfxRoomWetAccomp.gain.value = SFX_ROOM_WET;
+  sfxRoomSendAccomp.connect(sfxRoomAccomp);
+  sfxRoomAccomp.connect(sfxRoomWetAccomp);
+  sfxRoomWetAccomp.connect(isStem ? accompDryOutput : master);
   clickBus.connect(accompDryOutput);
   leadDryOutput.connect(master);
   accompDryOutput.connect(master);
@@ -203,22 +275,34 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
   const accompDestination = accompBus;
   const clickDestination = isStem ? clickBus : master;
 
-  function voice({ midi, type, detune = 0, gain = 1, when, length, envelope, destinationNode = master, reverb = true, filter, delaySend = false, pan = null }) {
+  function voice({ midi, type, detune = 0, gain = 1, when, length, envelope, destinationNode = master, reverb = true, filter, delaySend = false, pan = null, holdOpen = false }) {
     const oscillator = context.createOscillator();
     const amplitude = context.createGain();
     oscillator.type = type;
     oscillator.frequency.setValueAtTime(midiToFrequency(midi), when);
     oscillator.detune.setValueAtTime(detune, when);
-    const end = scheduleEnvelope(
-      amplitude.gain,
-      when,
-      envelope.attack,
-      envelope.decay,
-      envelope.sustain,
-      length,
-      envelope.release,
-      gain,
-    );
+    const end = holdOpen
+      ? when + HOLD_MAX_SECONDS + envelope.release
+      : scheduleEnvelope(
+        amplitude.gain,
+        when,
+        envelope.attack,
+        envelope.decay,
+        envelope.sustain,
+        length,
+        envelope.release,
+        gain,
+      );
+    if (holdOpen) {
+      scheduleOpenEnvelope(
+        amplitude.gain,
+        when,
+        envelope.attack,
+        envelope.decay,
+        envelope.sustain,
+        gain,
+      );
+    }
     oscillator.connect(amplitude);
     let output = amplitude;
     if (filter) {
@@ -229,8 +313,8 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
         filterNode.frequency.setValueAtTime(400, when);
         filterNode.frequency.exponentialRampToValueAtTime(4000, when + 0.3);
       } else if (filter.envelope) {
-        filterNode.frequency.setValueAtTime(Math.min(8000, filter.cutoff * 1.8), when);
-        filterNode.frequency.exponentialRampToValueAtTime(filter.cutoff, when + 0.4);
+        filterNode.frequency.setValueAtTime(Math.min(8000, filter.cutoff * (filter.envelopeMultiplier ?? 1.8)), when);
+        filterNode.frequency.exponentialRampToValueAtTime(filter.cutoff, when + (filter.envelopeDuration ?? 0.4));
       } else {
         filterNode.frequency.setValueAtTime(filter.cutoff, when);
       }
@@ -248,9 +332,10 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     if (delaySend) output.connect(delayInput);
     oscillator.start(when);
     oscillator.stop(end + 0.02);
+    return holdOpen ? openEnvelopeRelease(amplitude.gain, envelope.release) : () => {};
   }
 
-  function fmElectricPiano({ midi, gain, modulationIndex, when, length, envelope, filter, delaySend, destinationNode = leadBus }) {
+  function fmElectricPiano({ midi, gain, modulationIndex, when, length, envelope, filter, delaySend, destinationNode = leadBus, holdOpen = false }) {
     const carrier = context.createOscillator();
     const modulator = context.createOscillator();
     const modulationGain = context.createGain();
@@ -263,16 +348,21 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     modulator.frequency.setValueAtTime(frequency * 2, when);
     modulationGain.gain.setValueAtTime(Math.max(40, modulationIndex), when);
     modulationGain.gain.exponentialRampToValueAtTime(40, when + 0.25);
-    const end = scheduleEnvelope(
-      amplitude.gain,
-      when,
-      envelope.attack,
-      envelope.decay,
-      envelope.sustain,
-      length,
-      envelope.release,
-      gain,
-    );
+    const end = holdOpen
+      ? when + HOLD_MAX_SECONDS + envelope.release
+      : scheduleEnvelope(
+        amplitude.gain,
+        when,
+        envelope.attack,
+        envelope.decay,
+        envelope.sustain,
+        length,
+        envelope.release,
+        gain,
+      );
+    if (holdOpen) {
+      scheduleOpenEnvelope(amplitude.gain, when, envelope.attack, envelope.decay, envelope.sustain, gain);
+    }
     lowpass.type = "lowpass";
     lowpass.Q.value = 0.7;
     if (filter.sweep) {
@@ -292,25 +382,99 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
     modulator.start(when);
     carrier.stop(end + 0.02);
     modulator.stop(end + 0.02);
+    return holdOpen ? openEnvelopeRelease(amplitude.gain, envelope.release) : () => {};
+  }
+
+  function fmBell({ midi, gain, velocity, when, length, envelope, filter, delaySend, destinationNode = leadBus, holdOpen = false }) {
+    const carrier = context.createOscillator();
+    const modulator = context.createOscillator();
+    const modulationGain = context.createGain();
+    const amplitude = context.createGain();
+    const lowpass = context.createBiquadFilter();
+    const frequency = midiToFrequency(midi);
+    carrier.type = "sine";
+    carrier.frequency.setValueAtTime(frequency, when);
+    modulator.type = "sine";
+    modulator.frequency.setValueAtTime(frequency * 3.5, when);
+    modulationGain.gain.setValueAtTime(Math.max(MIN_GAIN, 220 * velocity), when);
+    modulationGain.gain.exponentialRampToValueAtTime(40, when + 0.6);
+    const end = holdOpen
+      ? when + HOLD_MAX_SECONDS + envelope.release
+      : scheduleEnvelope(amplitude.gain, when, envelope.attack, envelope.decay, envelope.sustain, length, envelope.release, gain);
+    if (holdOpen) scheduleOpenEnvelope(amplitude.gain, when, envelope.attack, envelope.decay, envelope.sustain, gain);
+    lowpass.type = "lowpass";
+    lowpass.Q.value = filter.q;
+    if (filter.sweep) {
+      lowpass.frequency.setValueAtTime(400, when);
+      lowpass.frequency.exponentialRampToValueAtTime(4000, when + 0.3);
+    } else {
+      lowpass.frequency.setValueAtTime(filter.cutoff, when);
+    }
+    modulator.connect(modulationGain);
+    modulationGain.connect(carrier.frequency);
+    carrier.connect(amplitude);
+    amplitude.connect(lowpass);
+    lowpass.connect(destinationNode);
+    if (destinationNode !== leadBus) lowpass.connect(reverbInput);
+    if (delaySend) lowpass.connect(delayInput);
+    carrier.start(when);
+    modulator.start(when);
+    carrier.stop(end + 0.02);
+    modulator.stop(end + 0.02);
+    return holdOpen ? openEnvelopeRelease(amplitude.gain, envelope.release) : () => {};
+  }
+
+  function pluckTransient({ gain, when, cutoff, destinationNode, delaySend, sweep }) {
+    const source = context.createBufferSource();
+    const amplitude = context.createGain();
+    const lowpass = context.createBiquadFilter();
+    source.buffer = pluckNoiseBuffer;
+    amplitude.gain.setValueAtTime(Math.max(MIN_GAIN, gain), when);
+    amplitude.gain.exponentialRampToValueAtTime(MIN_GAIN, when + 0.006);
+    lowpass.type = "lowpass";
+    lowpass.Q.value = 0.7;
+    if (sweep) {
+      lowpass.frequency.setValueAtTime(400, when);
+      lowpass.frequency.exponentialRampToValueAtTime(4000, when + 0.3);
+    } else {
+      lowpass.frequency.setValueAtTime(cutoff, when);
+    }
+    source.connect(amplitude);
+    amplitude.connect(lowpass);
+    lowpass.connect(destinationNode);
+    if (destinationNode !== leadBus) lowpass.connect(reverbInput);
+    if (delaySend) lowpass.connect(delayInput);
+    source.start(when);
+    source.stop(when + 0.006);
   }
 
   function scheduleLead(note, when, length, velocity, effect = "none", tension = 0, options = {}) {
-    const envelope = worldId === "daylight"
-      ? { attack: 0.005, decay: 0.35, sustain: 0.2, release: 0.25 }
-      : { attack: 0.008, decay: 0.5, sustain: 0.3, release: 0.6 };
+    const timbre = options.timbre ?? defaultTimbres(worldId).main;
+    const envelopes = {
+      epiano: { attack: 0.005, decay: 0.35, sustain: 0.2, release: 0.25 },
+      saw: { attack: 0.008, decay: 0.5, sustain: 0.3, release: 0.6 },
+      pluck: { attack: 0.003, decay: 0.28, sustain: 0.12, release: 0.12 },
+      bell: { attack: 0.002, decay: 1.2, sustain: 0.05, release: 0.6 },
+    };
+    if (!Object.hasOwn(envelopes, timbre)) throw new RangeError(`Unknown lead timbre: ${timbre}`);
+    const envelope = { ...envelopes[timbre] };
     if (options.release !== undefined) envelope.release = options.release;
     const destinationNode = isStem && options.stemRole === "accomp" ? accompBus : leadBus;
+    const holdOpen = options.hold === "open";
+    const releases = [];
     let scheduledLength = length;
     const scheduleSingle = (time, gainScale = 1, midiOffset = 0) => {
       const cutoff = cutoffForTension(tension, options.cutoffMinimum ?? 1200);
       const filter = {
         cutoff,
         sweep: effect === "sweep",
-        q: worldId === "night" ? 4 : 0.7,
-        envelope: worldId === "night" && effect !== "sweep",
+        q: timbre === "saw" ? 4 : 0.7,
+        envelope: (timbre === "saw" || timbre === "pluck") && effect !== "sweep",
+        envelopeMultiplier: timbre === "pluck" ? 2.2 : 1.8,
+        envelopeDuration: timbre === "pluck" ? 0.15 : 0.4,
       };
-      if (worldId === "daylight") {
-        fmElectricPiano({
+      if (timbre === "epiano") {
+        releases.push(fmElectricPiano({
           midi: note.midi + midiOffset,
           gain: velocity * gainScale * 0.2,
           modulationIndex: 300 * velocity * gainScale,
@@ -320,26 +484,60 @@ export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, 
           filter,
           delaySend: effect === "delay",
           destinationNode,
-        });
-        voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.2 * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
+          holdOpen,
+        }));
+        releases.push(voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.2 * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
+      } else if (timbre === "saw") {
+        releases.push(voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
+        releases.push(voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
+      } else if (timbre === "pluck") {
+        releases.push(voice({ midi: note.midi + midiOffset, type: "triangle", detune: 0, gain: velocity * gainScale * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
+        releases.push(voice({ midi: note.midi + midiOffset, type: "triangle", detune: 5, gain: velocity * gainScale * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
+        pluckTransient({ gain: velocity * gainScale * 0.08, when: time, cutoff, destinationNode, delaySend: effect === "delay", sweep: effect === "sweep" });
       } else {
-        voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
-        voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay" });
+        releases.push(fmBell({
+          midi: note.midi + midiOffset,
+          gain: velocity * gainScale * 0.16,
+          velocity,
+          when: time,
+          length: scheduledLength,
+          envelope,
+          filter,
+          delaySend: effect === "delay",
+          destinationNode,
+          holdOpen,
+        }));
+        releases.push(voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.04, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
       }
       if (effect === "octave") {
-        voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.3 * 0.2, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter });
+        releases.push(voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.3 * 0.2, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, holdOpen }));
       }
     };
     if (effect === "stutter") {
       [1, 0.7, 0.5].forEach((scale, index) => scheduleSingle(when + index * beatSec / 8, scale));
-    } else if (effect === "arpeggio" && Number.isInteger(note.degree)) {
-      scheduledLength = Math.max(0.12, (beatSec / 3) * 0.9);
-      arpeggioOffsets(scaleId, note.degree).forEach((midiOffset, index) => {
-        scheduleSingle(when + index * beatSec / 3, ARPEGGIO_GAINS[index], midiOffset);
-      });
-    } else {
-      scheduleSingle(when);
+      return null;
     }
+    if (effect === "arpeggio") {
+      if (Number.isInteger(note.degree)) {
+        scheduledLength = Math.max(0.12, (beatSec / 3) * 0.9);
+        arpeggioOffsets(scaleId, note.degree).forEach((midiOffset, index) => {
+          scheduleSingle(when + index * beatSec / 3, ARPEGGIO_GAINS[index], midiOffset);
+        });
+      } else {
+        scheduleSingle(when);
+      }
+      return null;
+    }
+    scheduleSingle(when);
+    let released = false;
+    return {
+      release(whenSec) {
+        if (released || !holdOpen) return;
+        released = true;
+        const releaseAt = Math.min(whenSec, when + HOLD_MAX_SECONDS);
+        releases.forEach((release) => release(releaseAt));
+      },
+    };
   }
 
   function schedulePad(chordName, when, duration, tension = 0, options = {}) {

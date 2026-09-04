@@ -52,6 +52,29 @@ test("SMF header and all six track chunks have valid lengths and endings", () =>
   assert.equal(offset, bytes.length);
 });
 
+test("two used timbres split lead into named channel-zero tracks while one timbre stays lead", () => {
+  const splitLog = sampleLog();
+  splitLog.events[0].timbre = "epiano";
+  splitLog.events[1].timbre = "bell";
+  const splitRecorder = createMidiRecorder(splitLog);
+  scheduleRecordedTake(splitRecorder.context, splitRecorder, splitLog, 0);
+  assert.deepEqual(splitRecorder.leadTrackNames, ["lead:epiano", "lead:bell"]);
+  assert.equal(splitRecorder.tracks["lead:epiano"].some(({ midi }) => midi === 60), true);
+  assert.equal(splitRecorder.tracks["lead:bell"].some(({ midi }) => midi === 62), true);
+  const splitBytes = createMidiFile(splitLog);
+  const splitView = new DataView(splitBytes.buffer, splitBytes.byteOffset, splitBytes.byteLength);
+  assert.equal(splitView.getUint16(10), 7);
+  assert.notEqual(Buffer.from(splitBytes).indexOf(Buffer.from("lead:epiano")), -1);
+  assert.notEqual(Buffer.from(splitBytes).indexOf(Buffer.from("lead:bell")), -1);
+
+  const singleLog = sampleLog();
+  singleLog.events.forEach((event) => { event.timbre = "epiano"; });
+  const singleRecorder = createMidiRecorder(singleLog);
+  assert.deepEqual(singleRecorder.leadTrackNames, ["lead"]);
+  assert.ok(Array.isArray(singleRecorder.tracks.lead));
+  assert.equal(new DataView(createMidiFile(singleLog).buffer).getUint16(10), 6);
+});
+
 test("logged and automatic SFX share the dedicated MIDI track", () => {
   const log = sampleLog();
   log.bars = 16;

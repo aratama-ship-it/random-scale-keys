@@ -65,6 +65,22 @@ export function remainingSeconds(now, takeStart, takeEnd) {
   return Math.ceil(Math.max(0, takeEnd - Math.max(now, takeStart)));
 }
 
+export function holdRelease(pressWhen, naturalLength, nowSec, maxHoldSec) {
+  if (![pressWhen, naturalLength, nowSec, maxHoldSec].every(Number.isFinite)) {
+    throw new TypeError("hold release values must be finite numbers");
+  }
+  const releaseAt = Math.min(
+    Math.max(nowSec, pressWhen + naturalLength),
+    pressWhen + maxHoldSec,
+  );
+  const length = releaseAt - pressWhen;
+  return {
+    releaseAt,
+    length,
+    held: length > naturalLength + 1e-6,
+  };
+}
+
 export function rowOffsetPx(rowIndex, keySize) {
   const ratios = [0, 0.25, 0.625];
   return Math.round((ratios[rowIndex] ?? 0) * keySize);
@@ -156,6 +172,8 @@ export function validateTakeLog(value) {
       : !["time", "beat", "midi", "degree", "velocity", "length"].every((key) => typeof event[key] === "number" && Number.isFinite(event[key]))
         || typeof event.kind !== "string"
         || typeof event.role !== "string"
+        || (event.timbre !== undefined && typeof event.timbre !== "string")
+        || (event.held !== undefined && typeof event.held !== "boolean")
   ));
   if (invalidTypeIndex !== -1) return { ok: false, reason: `events[${invalidTypeIndex}] の項目型が正しくありません` };
   return { ok: true };

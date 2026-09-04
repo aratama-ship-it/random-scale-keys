@@ -4,6 +4,13 @@ export const KEY_CODES = Object.freeze(
 
 export const EFFECT_COUNTS = Object.freeze({ none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
 export const ARPEGGIO_GAINS = Object.freeze([1, 0.85, 0.75]);
+export const LEAD_TIMBRES = Object.freeze(["epiano", "saw", "pluck", "bell"]);
+export const TIMBRE_LABELS = Object.freeze({
+  epiano: "電気ピアノ",
+  saw: "ソウ",
+  pluck: "プラック",
+  bell: "ベル",
+});
 export const SFX_KEYS = Object.freeze({
   Digit1: Object.freeze({ type: "impact", variant: 0 }),
   Digit2: Object.freeze({ type: "impact", variant: 1 }),
@@ -34,6 +41,13 @@ export const WORLDS = Object.freeze({
     defaultScaleId: "aeolian",
   }),
 });
+
+export function defaultTimbres(worldId) {
+  getWorld(worldId);
+  return worldId === "daylight"
+    ? { main: "epiano", shift: "bell" }
+    : { main: "saw", shift: "pluck" };
+}
 
 const SCALE_DEFINITIONS = Object.freeze([
   ["ionian", "イオニアン（メジャー）", "教会旋法", [0, 2, 4, 5, 7, 9, 11]],

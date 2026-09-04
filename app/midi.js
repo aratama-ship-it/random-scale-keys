@@ -2,6 +2,7 @@ import {
   ARPEGGIO_GAINS,
   arpeggioOffsets,
   chordMidiNotes,
+  defaultTimbres,
   getWorld,
   resolveScaleId,
   tonicChordForScale,
@@ -64,18 +65,32 @@ function note(track, trackName, midi, when, length, velocity) {
   });
 }
 
-export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) {
+export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm, events = [] }) {
   const scaleId = resolveScaleId(worldId, requestedScaleId);
   const beatSec = 60 / bpm;
-  const tracks = { lead: [], pad: [], bass: [], sfx: [], drums: [] };
+  const usedTimbres = [...new Set(events
+    .filter((event) => ["press", "answer"].includes(event.kind) && typeof event.timbre === "string")
+    .map((event) => event.timbre))];
+  const splitLead = usedTimbres.length >= 2;
+  const leadTrackNames = splitLead ? usedTimbres.map((timbre) => `lead:${timbre}`) : ["lead"];
+  const tracks = {
+    ...Object.fromEntries(leadTrackNames.map((name) => [name, []])),
+    pad: [],
+    bass: [],
+    sfx: [],
+    drums: [],
+  };
+  const fallbackTimbre = usedTimbres[0] ?? defaultTimbres(worldId).main;
 
-  function scheduleLead(source, when, length, velocity, effect = "none") {
+  function scheduleLead(source, when, length, velocity, effect = "none", _tension = 0, options = {}) {
+    const trackName = splitLead ? `lead:${options.timbre ?? source.timbre ?? fallbackTimbre}` : "lead";
+    const leadTrack = tracks[trackName] ?? tracks[leadTrackNames[0]];
     if (effect === "arpeggio" && Number.isInteger(source.degree)) {
       const arpeggioLength = Math.max(0.12, (beatSec / 3) * 0.9);
       arpeggioOffsets(scaleId, source.degree).forEach((midiOffset, index) => {
         note(
-          tracks.lead,
-          "lead",
+          leadTrack,
+          trackName,
           source.midi + midiOffset,
           when + index * beatSec / 3,
           arpeggioLength,
@@ -88,8 +103,8 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) 
       ? [when, when + beatSec / 8, when + beatSec / 4]
       : [when];
     times.forEach((time) => {
-      note(tracks.lead, "lead", source.midi, time, length, velocity);
-      if (effect === "octave") note(tracks.lead, "lead", source.midi + 12, time, length, velocity);
+      note(leadTrack, trackName, source.midi, time, length, velocity);
+      if (effect === "octave") note(leadTrack, trackName, source.midi + 12, time, length, velocity);
     });
   }
 
@@ -135,6 +150,7 @@ export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) 
     bpm,
     beatSec,
     tracks,
+    leadTrackNames,
     scheduleLead,
     schedulePad,
     scheduleBass,
@@ -186,7 +202,7 @@ export function createMidiFile(log) {
   scheduleRecordedTake(recorder.context, recorder, log, 0);
   const chunks = [
     tempoTrack(log.bpm),
-    trackChunk("lead", 0, recorder.tracks.lead, log.bpm),
+    ...recorder.leadTrackNames.map((name) => trackChunk(name, 0, recorder.tracks[name], log.bpm)),
     trackChunk("pad", 1, recorder.tracks.pad, log.bpm),
     trackChunk("bass", 2, recorder.tracks.bass, log.bpm),
     trackChunk("sfx", 3, recorder.tracks.sfx, log.bpm),

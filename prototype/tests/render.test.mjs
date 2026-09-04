@@ -79,6 +79,16 @@ test("scheduleRecordedTake sends press and answer notes through the shared lead 
   assert.deepEqual(synth.calls.lead.map(([event]) => event.kind), ["press", "answer"]);
 });
 
+test("scheduleRecordedTake forwards an event timbre and leaves legacy events undefined", () => {
+  const log = sampleLog();
+  log.events[0].timbre = "bell";
+  log.events.push({ kind: "answer", beat: 3, time: 1.8, degree: 1, midi: 60, velocity: 0.45, length: 0.6, effect: "none", tAfter: 0.4 });
+  const synth = recordingSynth();
+  scheduleRecordedTake({ currentTime: 0 }, synth, log, 0);
+  assert.equal(synth.calls.lead[0][6].timbre, "bell");
+  assert.equal(synth.calls.lead[1][6].timbre, undefined);
+});
+
 test("scheduleRecordedTake sends one arpeggio press through one synth lead call", () => {
   const log = sampleLog();
   log.events[0].effect = "arpeggio";

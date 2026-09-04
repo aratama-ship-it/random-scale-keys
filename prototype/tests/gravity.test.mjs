@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   ARPEGGIO_GAINS,
+  LEAD_TIMBRES,
+  TIMBRE_LABELS,
   accentForBeat,
   allocateKeys,
   answerDegree,
@@ -24,6 +26,7 @@ import {
   chordToneWeight,
   chooseChord,
   createLayout,
+  defaultTimbres,
   deriveRoles,
   getScale,
   harmonyScaleId,
@@ -40,6 +43,14 @@ import {
   velocityFromInterval,
   voiceLead,
 } from "../gravity.mjs";
+
+test("lead timbres expose four labels and world-specific defaults", () => {
+  assert.deepEqual(LEAD_TIMBRES, ["epiano", "saw", "pluck", "bell"]);
+  assert.deepEqual(Object.keys(TIMBRE_LABELS), LEAD_TIMBRES);
+  assert.deepEqual(defaultTimbres("daylight"), { main: "epiano", shift: "bell" });
+  assert.deepEqual(defaultTimbres("night"), { main: "saw", shift: "pluck" });
+  assert.throws(() => defaultTimbres("unknown"), RangeError);
+});
 
 test("createLayout is deterministic for the same seed and changes for another seed", () => {
   assert.deepEqual(createLayout(123456, "daylight"), createLayout(123456, "daylight"));

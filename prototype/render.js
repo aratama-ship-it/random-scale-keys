@@ -145,7 +145,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       event.velocity,
       event.effect,
       event.tAfter,
-      { cutoffMinimum: event.section === "b" ? 1800 : 1200 },
+      { cutoffMinimum: event.section === "b" ? 1800 : 1200, timbre: event.timbre },
     );
   });
 
