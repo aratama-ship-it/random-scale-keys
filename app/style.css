@@ -316,13 +316,16 @@ body[data-imported="true"] .legend { display: none; }
   .finished-panel { width: 100%; }
 }
 
-@media (max-width: 600px) {
-  .terrain-stage { min-height: calc(var(--space-6) * 3); }
-  .settings .performance-setting,
+@media (max-width: 599.98px) {
+  #terrain,
+  #tension-track,
+  .topbar,
+  .terrain-stage,
+  .settings,
   .diagnostic-panel,
   .keyboard,
-  .legend { display: none; }
-  .settings { margin-bottom: var(--space-3); }
+  .legend,
+  .finished-panel { display: none; }
   .mobile-message { display: block; margin: 0; padding: var(--space-4); border: var(--line) solid var(--text); border-radius: var(--radius-m); background: var(--bg); }
 }
 

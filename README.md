@@ -1,12 +1,12 @@
 # random-scale-keys（仮称）— ランダム配置のスケール鍵盤で即興が曲になるアプリ
 
 PCキーボードのA〜Zに、スケール音とエフェクトをランダムに割り当て、タイピングのように打つだけで
-30〜60秒の即興作品ができるブラウザアプリ。作品はWAV・ステム・MIDIとして持ち帰れる（Logic Pro連携）。
+30〜60秒の即興作品ができるPC専用ブラウザアプリ。作品はWAV・ステム・MIDIとして持ち帰れる（Logic Pro連携）。
 
 - 企画の正本: `obsidian-vault/ideas/2026-09-03_ランダム鍵盤で曲になるアプリ_ブレスト.md`
 - 関連（所有境界を分ける）: `apps/utility-app/juggling-music-reactor/`（ジャグリング動作→音楽。イベント契約v0の正本）。
   本アプリは同契約のサブセットを使う。相互にファイルを書き換えない。
-- 状態（2026-09-04）: **app v0.5.0 のM3実装までローカルで完了**。16小節の演奏、テイクの再生、
+- 状態（2026-09-04）: **app v0.5.1 のM3実装までローカルで完了**。16小節の演奏、テイクの再生、
   JSON読み込み、ミックスWAV、ステム3本、SMF Format 1、JSON書き出しに対応。Logic Proでの読み込み・頭揃えは本人確認前。
 - 試聴用の公開（GitHub Pages）: https://aratama-ship-it.github.io/random-scale-keys/ （`prototype/` へ転送）。
   公開リポジトリには `prototype/`・README・PROJECT_NOTES だけを載せ、`design/`（判断用HTML・トークンシート・参照メモ）は
@@ -29,7 +29,7 @@ python3 -m http.server 8962 --bind 127.0.0.1
 実装計画（判断用HTML）: `http://127.0.0.1:8962/design/IMPLEMENTATION_PLAN_2026-09-03.html`
 （Claude Codeのプレビューでは `.claude/launch.json` の `random-scale-keys`＝同じ8962番で配信。`/` は `/prototype/` へ）
 
-## 起動（app v0.5.0）
+## 起動（app v0.5.1、PC専用）
 
 上記と同じローカルサーバーを起動し、`http://127.0.0.1:8962/app/` を開く。
 

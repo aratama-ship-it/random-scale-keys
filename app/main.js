@@ -27,7 +27,15 @@ import { downloadTakeJson, scheduleRecordedTake } from "../prototype/render.js";
 import { createSynth } from "../prototype/synth.js";
 import { downloadTakeMidi } from "./midi.js";
 import { downloadMixWav, downloadStems } from "./stems.js";
-import { formatParams, parseParams, pressTracker, rowOffsetPx, transition, validateTakeLog } from "./ui-core.mjs";
+import {
+  diagnosticDisabledForState,
+  formatParams,
+  parseParams,
+  pressTracker,
+  rowOffsetPx,
+  transition,
+  validateTakeLog,
+} from "./ui-core.mjs";
 import { createTerrain } from "./terrain.js";
 
 const PERFORMANCE = Object.freeze({
@@ -86,7 +94,7 @@ const elements = {
 };
 
 const terrain = createTerrain(document.querySelector("#terrain"));
-const narrowScreen = window.matchMedia("(max-width: 600px)");
+const narrowScreen = window.matchMedia("(max-width: 599.98px)");
 
 let state = "idle";
 let layout;
@@ -246,6 +254,7 @@ function renderState() {
   const panelVisible = finished || state === "replay";
   elements.finishedPanel.hidden = !panelVisible;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
+  elements.diagnose.disabled = diagnosticDisabledForState(state);
   elements.primary.disabled = (state === "idle" || state === "finished") && narrowScreen.matches;
   elements.primary.textContent = active ? "停止 (Enter)" : finished ? "もう1テイク" : "演奏開始";
   elements.statusLabel.textContent = state === "idle" ? "待機" : state === "countin" ? "カウントイン" : state === "playing" ? "演奏中" : state === "replay" ? "再生中" : "テイク完了";
@@ -391,6 +400,7 @@ function scheduleAhead() {
 }
 
 async function beginTake(eventType) {
+  closeDiagnostic();
   await closeAudio();
   elements.exportStatus.textContent = "";
   if (eventType === "START") rebuildLayout();
@@ -504,6 +514,7 @@ function finishReplayNaturally() {
 
 async function beginReplay() {
   if (state !== "finished" || !takeLog) return;
+  closeDiagnostic();
   await closeAudio();
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) throw new Error("このブラウザはWeb Audio APIに対応していません");
@@ -711,7 +722,7 @@ function finishDiagnostic() {
 }
 
 function startDiagnostic() {
-  if (state !== "idle") return;
+  if (diagnosticDisabledForState(state)) return;
   clearTimeout(diagnosticTimer);
   diagnosticKeys = pressTracker();
   diagnosticActive = true;

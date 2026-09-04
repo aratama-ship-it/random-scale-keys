@@ -159,3 +159,18 @@
 - **見つけた問題**: 等高線の標高0の線が源から遠い平坦域にも現れ画面上端まで伸びる → 平坦域マスク（全隅 |標高|<0.04 のセルは描かない）を Codex に委譲
 - 未確認: 再生中の Enter 停止（非表示タブでは AudioContext.close が返らず判定不能。コードは playing と同じ経路）、同時押し診断（物理キー）
 - 平坦域マスク（VISUAL.contourFlatThreshold 0.04）を適用後、等高線はキーボード周辺だけに収まり画面上端へ伸びなくなった（可視化して目視）。テスト 17/17
+
+### 2026-09-04 M3 ゲート途中の本人判断
+
+- 本人「JSONからスマホはそれほど重要でない」→ **モバイル対応だけ外す**（PCのJSON読み込みはM4の入口として残す）。v0.5.1 で幅<600px を案内だけに戻す
+- 反省: 「ついでの便利機能」を推奨に混ぜた → dev-preferences に方向性として記録
+
+### 2026-09-04 v0.5.1 / v0.5.2（モバイル巻き戻し・診断ボタン修正）
+
+- v0.5.1: 幅<600px は「PCで開いてください」だけに戻した（本人判断）
+- v0.5.2: 本人報告「同時押しを診断が押せない」→ 原因は finished 状態で #diagnose が disabled（.performance-setting 一括無効化）。
+  idle/finished で有効、countin/playing/replay だけ無効に。見た目も二次ボタン（44px）に変更
+- **Codexの回帰を検出**: main.js が `diagnosticDisabledForState` を `../prototype/gravity.mjs` から import（正しくは `./ui-core.mjs`）→
+  モジュール読込が失敗しアプリ全体が起動しない状態。`node --test`／`node --check` では検出できない（名前付きimportの解決はブラウザ実行時）。
+  Claudeが1行修正。**教訓: Codex変更後は必ずブラウザで console error を確認する**（テスト通過を完了の根拠にしない）
+- 確認: JSON読み込み→テイク完了→診断ボタン有効→パネル表示→「同時に 2 キーまで届きました（最大 A + S）」。テスト app 18/18・prototype 15/15

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  diagnosticDisabledForState,
   fieldAt,
   formatParams,
   lerpColor,
@@ -13,6 +14,14 @@ import {
   transition,
   validateTakeLog,
 } from "../ui-core.mjs";
+
+test("diagnostic controls are enabled only while idle or finished", () => {
+  assert.equal(diagnosticDisabledForState("idle"), false);
+  assert.equal(diagnosticDisabledForState("finished"), false);
+  assert.equal(diagnosticDisabledForState("countin"), true);
+  assert.equal(diagnosticDisabledForState("playing"), true);
+  assert.equal(diagnosticDisabledForState("replay"), true);
+});
 
 test("lerpColor returns the endpoints and midpoint as uppercase HEX", () => {
   assert.equal(lerpColor("#F3EFE6", "#EAD9CC", 0), "#F3EFE6");

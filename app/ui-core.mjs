@@ -28,6 +28,10 @@ export function transition(state, event) {
   return TRANSITIONS[state]?.[eventType] ?? state;
 }
 
+export function diagnosticDisabledForState(state) {
+  return state !== "idle" && state !== "finished";
+}
+
 export function parseParams(search = "") {
   const params = new URLSearchParams(search);
   const requestedWorld = params.get("world");
