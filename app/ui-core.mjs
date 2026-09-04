@@ -34,6 +34,10 @@ export function diagnosticDisabledForState(state) {
   return state !== "idle" && state !== "finished";
 }
 
+export function nextTakeSettingsDisabledForState(state) {
+  return state === "countin" || state === "playing" || state === "replay";
+}
+
 export function parseParams(search = "") {
   const params = new URLSearchParams(search);
   const requestedWorld = params.get("world");

@@ -59,12 +59,37 @@ function frozenRoles(roles) {
   ));
 }
 
+function closestDegree(intervals, targets, excludedDegrees = [], preferHigher = false) {
+  const excluded = new Set(excludedDegrees);
+  const candidates = intervals
+    .map((interval, index) => ({
+      degree: index + 1,
+      interval,
+      distance: Math.min(...targets.map((target) => Math.abs(interval - target))),
+    }))
+    .filter(({ degree }) => !excluded.has(degree));
+  candidates.sort((left, right) => (
+    left.distance - right.distance
+    || (preferHigher ? right.interval - left.interval : left.interval - right.interval)
+    || left.degree - right.degree
+  ));
+  if (!candidates.length) throw new RangeError("No scale degree is available");
+  return candidates[0].degree;
+}
+
+function tonicDegrees(intervals) {
+  if (intervals.length >= 7) return [1, 3, 5];
+  const third = closestDegree(intervals, [3, 4], [1]);
+  const fifth = closestDegree(intervals, [7], [1, third], true);
+  return [1, third, fifth].sort((left, right) => left - right);
+}
+
 export function deriveRoles(intervals) {
   if (!Array.isArray(intervals) || intervals.length < 5) {
     throw new TypeError("intervals must contain at least five scale degrees");
   }
-  const tonicTriad = new Set([intervals[0], intervals[2], intervals[4]]);
-  const stable = [1, 3, 5];
+  const stable = tonicDegrees(intervals);
+  const tonicTriad = new Set(stable.map((degree) => intervals[degree - 1]));
   const tension = [];
   const floating = [];
   intervals.forEach((interval, index) => {
@@ -199,6 +224,13 @@ function triadForDegree(scaleId, degree) {
   if (!Number.isInteger(degree) || degree < 1 || degree > count) {
     throw new RangeError(`Invalid scale degree: ${degree}`);
   }
+  if (count < 7 && degree === 1) {
+    const degrees = tonicDegrees(scale.intervals);
+    return {
+      degrees,
+      intervals: degrees.map((tonicDegree) => scale.intervals[tonicDegree - 1]),
+    };
+  }
   const offsets = [0, 2, 4];
   return {
     degrees: offsets.map((offset) => ((degree - 1 + offset) % count) + 1),
@@ -311,12 +343,18 @@ export function chordDegrees(scaleOrWorldId) {
   const scaleId = scaleIdFromScaleOrWorld(scaleOrWorldId);
   const scale = getScale(scaleId);
   const count = scale.intervals.length;
-  return {
-    tonic: 1,
-    subdominant: count >= 7 ? 4 : 3,
-    dominant: count >= 7 ? (scale.intervals[count - 1] === 11 ? 5 : count) : 4,
-    submediant: count >= 7 ? 6 : 2,
-  };
+  if (count >= 7) {
+    return {
+      tonic: 1,
+      subdominant: 4,
+      dominant: scale.intervals[count - 1] === 11 ? 5 : count,
+      submediant: 6,
+    };
+  }
+  const subdominant = closestDegree(scale.intervals, [5], [1]);
+  const dominant = closestDegree(scale.intervals, [7], [1, subdominant]);
+  const submediant = closestDegree(scale.intervals, [9], [1, subdominant, dominant]);
+  return { tonic: 1, subdominant, dominant, submediant };
 }
 
 export function chordForTension(scaleOrWorldId, tension, barIndex = 0) {
@@ -350,6 +388,13 @@ export function chordForBar(scaleOrWorldId, barIndex, tension) {
   }
   const scale = getScale(scaleId);
   const degrees = chordDegrees(scaleId);
+  const position = barIndex % 4;
+  if (scale.intervals.length < 7) {
+    if (tension >= 0.6) return chordLabel(scaleId, degrees.dominant);
+    if (tension >= 0.3 && position === 1) return chordLabel(scaleId, degrees.subdominant);
+    const loopDegrees = [degrees.tonic, degrees.tonic, degrees.submediant, degrees.dominant];
+    return chordLabel(scaleId, loopDegrees[position]);
+  }
   const tonicIntervals = triadForDegree(scaleId, degrees.tonic).intervals;
   const tonicQuality = [
     tonicIntervals[1] - tonicIntervals[0],
@@ -358,7 +403,6 @@ export function chordForBar(scaleOrWorldId, barIndex, tension) {
   const isMinor = tonicQuality[0] === 3 && tonicQuality[1] === 7;
   const middleDegree = isMinor ? degrees.subdominant : degrees.submediant;
   const baseThirdDegree = isMinor ? degrees.submediant : degrees.subdominant;
-  const position = barIndex % 4;
   const loopDegrees = [degrees.tonic, degrees.tonic, baseThirdDegree, degrees.dominant];
   if (tension >= 0.6) return chordLabel(scaleId, degrees.dominant);
   if (tension >= 0.3 && tension < 0.6 && position === 1) {

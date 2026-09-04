@@ -7,6 +7,7 @@ import {
   formatParams,
   lerpColor,
   marchingSquares,
+  nextTakeSettingsDisabledForState,
   parseParams,
   pressTracker,
   remainingSeconds,
@@ -22,6 +23,14 @@ test("diagnostic controls are enabled only while idle or finished", () => {
   assert.equal(diagnosticDisabledForState("countin"), true);
   assert.equal(diagnosticDisabledForState("playing"), true);
   assert.equal(diagnosticDisabledForState("replay"), true);
+});
+
+test("next-take settings stay enabled while idle or finished and lock only during audio states", () => {
+  assert.equal(nextTakeSettingsDisabledForState("idle"), false);
+  assert.equal(nextTakeSettingsDisabledForState("finished"), false);
+  assert.equal(nextTakeSettingsDisabledForState("countin"), true);
+  assert.equal(nextTakeSettingsDisabledForState("playing"), true);
+  assert.equal(nextTakeSettingsDisabledForState("replay"), true);
 });
 
 test("lerpColor returns the endpoints and midpoint as uppercase HEX", () => {
@@ -40,6 +49,10 @@ test("transition covers the four-state flow and leaves invalid events unchanged"
   assert.equal(transition("playing", "STOP"), "finished");
   assert.equal(transition("idle", "TAKE_COMPLETE"), "idle");
   assert.equal(transition("unknown", "START"), "unknown");
+  assert.equal(transition("finished", "WORLD_CHANGE"), "finished");
+  assert.equal(transition("finished", "SCALE_CHANGE"), "finished");
+  assert.equal(transition("finished", "QUANTIZE_CHANGE"), "finished");
+  assert.equal(transition("finished", "SEED_CHANGE"), "finished");
 });
 
 test("parseParams and formatParams round-trip and resolve unknown world or scale values", () => {

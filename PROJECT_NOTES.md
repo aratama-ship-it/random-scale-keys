@@ -228,3 +228,12 @@
 - 本人要望: 停止後に次のテイクの前でスケール・クオンタイズを変えたい → finished で設定を有効化（書き出しは直前テイクのまま）
 - **本人の発見（演奏のコツ）**: 同じキー付近を使い続けるとループ感・楽曲感が出る（近いキー＝近い音＝モチーフの反復）。
   展開したければ使う位置をずらす。→ README「演奏のコツ」へ。アプリ内表示は本人判断待ち
+
+### 2026-09-04 M6 app v0.7.1（Codex実装・Claude検証）
+
+- 5〜6音音階9種の主和音がSPEC A3の表どおり: egyptian C-D-G(stable 1,2,4)／major_pentatonic C-E-G／minor_pentatonic C-E♭-G／yo C-D-G／
+  in_sen C-F-G／hirajoshi C-E♭-G／ryukyu C-E-G／blues C-E♭-G／whole_tone C-E-G#。進行は [tonic,tonic,submediant,dominant]
+- 7音階12種は stable 1,3,5・主和音・進行・キー配分とも無変更。daylight+ionian の同一ログWAVは M1 基準と ±1LSB
+- finished で世界/スケール/クオンタイズ/seed が有効。スケール変更でタイル表示が即更新、完了パネルは直前テイクの音階名のまま、
+  ボタンは「もう1テイク」。README に「演奏のコツ」（本人の発見）。テスト app 26/26・prototype 24/24、console error 0（favicon除く）
+- 注: 5音階の和音名は度数ローマ数字＋`*`（例 egyptian の基本進行 I* I* V* IV* は「第5度・第4度の上の和音」の意味で、機能名ではない）

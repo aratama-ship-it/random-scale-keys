@@ -13,6 +13,7 @@ import {
   chordDegrees,
   chordForBar,
   chordLabel,
+  chordMidiNotes,
   chordRootMidi,
   chordForTension,
   chordToneWeight,
@@ -23,6 +24,7 @@ import {
   quantize,
   reverbSendFromSilence,
   sectionForBar,
+  tonicChordForScale,
   updateTension,
   velocityFromInterval,
 } from "../gravity.mjs";
@@ -59,12 +61,12 @@ test("tension decays for eight beats before applying the role delta", () => {
   assert.ok(Math.abs(updateTension(0.5, 8, "tension") - (0.5 * Math.exp(-1) + 0.22)) < 1e-12);
 });
 
-test("deriveRoles reproduces ionian and marks major pentatonic as gentle", () => {
+test("deriveRoles reproduces ionian and uses an interval-based tonic for major pentatonic", () => {
   assert.deepEqual(deriveRoles(SCALES.ionian.intervals), {
     stable: [1, 3, 5], floating: [2, 6], tension: [4, 7], gentle: false,
   });
   assert.deepEqual(deriveRoles(SCALES.major_pentatonic.intervals), {
-    stable: [1, 3, 5], floating: [2, 4], tension: [], gentle: true,
+    stable: [1, 3, 4], floating: [2, 5], tension: [], gentle: true,
   });
 });
 
@@ -156,6 +158,54 @@ test("chord degrees, labels, and bar rules reproduce ionian and aeolian", () => 
   assert.equal(chordForBar("aeolian", 1, 0.4), "iv");
   assert.deepEqual([0, 1, 2, 3].map((bar) => chordForBar("ionian", bar, 0.7)), ["V", "V", "V", "V"]);
   assert.deepEqual([0, 1, 2, 3].map((bar) => chordForBar("aeolian", bar, 0.7)), ["VII", "VII", "VII", "VII"]);
+});
+
+test("all nine five- and six-note scales use the specified interval-based tonic and function roots", () => {
+  const expected = {
+    egyptian: { tonic: [1, 2, 4], intervals: [0, 2, 7], functions: [1, 3, 4, 5] },
+    major_pentatonic: { tonic: [1, 3, 4], intervals: [0, 4, 7], functions: [1, 3, 4, 5] },
+    minor_pentatonic: { tonic: [1, 2, 4], intervals: [0, 3, 7], functions: [1, 3, 4, 5] },
+    yo: { tonic: [1, 2, 4], intervals: [0, 2, 7], functions: [1, 3, 4, 5] },
+    in_sen: { tonic: [1, 3, 4], intervals: [0, 5, 7], functions: [1, 3, 4, 5] },
+    hirajoshi: { tonic: [1, 3, 4], intervals: [0, 3, 7], functions: [1, 3, 4, 5] },
+    ryukyu: { tonic: [1, 2, 4], intervals: [0, 4, 7], functions: [1, 3, 4, 5] },
+    blues: { tonic: [1, 2, 5], intervals: [0, 3, 7], functions: [1, 3, 5, 6] },
+    whole_tone: { tonic: [1, 3, 5], intervals: [0, 4, 8], functions: [1, 3, 4, 5] },
+  };
+  Object.entries(expected).forEach(([scaleId, values]) => {
+    const scale = SCALES[scaleId];
+    const tonic = tonicChordForScale(scaleId);
+    assert.deepEqual(chordDegreeNotes(scaleId, tonic), values.tonic, scaleId);
+    assert.deepEqual(values.tonic.map((degree) => scale.intervals[degree - 1]), values.intervals, scaleId);
+    assert.deepEqual(Object.values(chordDegrees(scaleId)), values.functions, scaleId);
+  });
+});
+
+test("short-scale bar progressions use submediant, subdominant, and dominant as specified", () => {
+  const rootForBar = (bar, tension) => chordDegreeNotes("egyptian", chordForBar("egyptian", bar, tension))[0];
+  assert.deepEqual([0, 1, 2, 3].map((bar) => rootForBar(bar, 0)), [1, 1, 5, 4]);
+  assert.equal(rootForBar(1, 0.4), 3);
+  assert.deepEqual([0, 1, 2, 3].map((bar) => rootForBar(bar, 0.7)), [4, 4, 4, 4]);
+});
+
+test("all twelve seven-note scales retain their legacy chord degrees and tonic triad", () => {
+  const sevenNoteScales = Object.values(SCALES).filter((scale) => scale.intervals.length >= 7);
+  assert.equal(sevenNoteScales.length, 12);
+  sevenNoteScales.forEach((scale) => {
+    assert.deepEqual(chordDegreeNotes(scale.id, tonicChordForScale(scale.id)), [1, 3, 5], scale.id);
+    assert.deepEqual(chordDegrees(scale.id), {
+      tonic: 1,
+      subdominant: 4,
+      dominant: scale.intervals.at(-1) === 11 ? 5 : 7,
+      submediant: 6,
+    }, scale.id);
+  });
+});
+
+test("egyptian stable degrees drive a complete 26-key allocation and tonic MIDI chord", () => {
+  assert.deepEqual(SCALES.egyptian.roles.stable, [1, 2, 4]);
+  assert.equal(Object.values(allocateKeys(SCALES.egyptian.roles)).reduce((sum, count) => sum + count, 0), 26);
+  assert.deepEqual(chordMidiNotes("daylight", "egyptian", tonicChordForScale("egyptian")), [60, 62, 67]);
 });
 
 test("all 21 scales cover every degree and produce valid key and chord allocations", () => {

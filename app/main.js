@@ -34,6 +34,7 @@ import { downloadMixWav, downloadStems } from "./stems.js";
 import {
   diagnosticDisabledForState,
   formatParams,
+  nextTakeSettingsDisabledForState,
   parseParams,
   pressTracker,
   remainingSeconds,
@@ -272,6 +273,8 @@ function renderState() {
   const panelVisible = finished || state === "replay";
   elements.finishedPanel.hidden = !panelVisible;
   for (const control of elements.settings.elements) control.disabled = state !== "idle";
+  [elements.world, elements.scale, elements.quantize, elements.seed, elements.reroll]
+    .forEach((control) => { control.disabled = nextTakeSettingsDisabledForState(state); });
   elements.diagnose.disabled = diagnosticDisabledForState(state);
   elements.primary.disabled = (state === "idle" || state === "finished") && narrowScreen.matches;
   elements.primary.textContent = active ? "停止 (Enter)" : finished ? "もう1テイク" : "演奏開始";
