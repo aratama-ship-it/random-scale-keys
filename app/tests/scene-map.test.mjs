@@ -14,10 +14,10 @@ const fixture = JSON.parse(await readFile(new URL("../scenes/three-ball-cascade.
 
 test("assignDegrees is deterministic and retains every prop beyond seven degrees", () => {
   const props = Array.from({ length: 10 }, (_, index) => `prop.${index}`);
-  assert.deepEqual(assignDegrees(props, 42, "daylight"), assignDegrees(props, 42, "daylight"));
-  assert.equal(Object.keys(assignDegrees(props.slice(0, 3), 42, "daylight")).length, 3);
-  assert.deepEqual(Object.keys(assignDegrees(props, 42, "daylight")), props);
-  assert.equal(new Set(Object.values(assignDegrees(props.slice(0, 7), 42, "daylight"))).size, 7);
+  assert.deepEqual(assignDegrees(props, 42, "ionian"), assignDegrees(props, 42, "ionian"));
+  assert.equal(Object.keys(assignDegrees(props.slice(0, 3), 42, "ionian")).length, 3);
+  assert.deepEqual(Object.keys(assignDegrees(props, 42, "ionian")), props);
+  assert.equal(new Set(Object.values(assignDegrees(props.slice(0, 7), 42, "ionian"))).size, 7);
 });
 
 test("flightTimes pairs releases and catches per prop, including an exact-loop boundary", () => {
@@ -38,6 +38,7 @@ test("flightTimes pairs releases and catches per prop, including an exact-loop b
 test("sceneToEvents maps catches to presses, preserves releases only as log events, and applies hand octave", () => {
   const log = sceneToEvents(fixture, {
     worldId: "daylight",
+    scaleId: "ionian",
     seed: 123,
     bpm: 100,
     bars: 1,
@@ -53,16 +54,18 @@ test("sceneToEvents maps catches to presses, preserves releases only as log even
   });
   log.events.forEach((event) => assert.equal(event.sourceId, "motion-scene"));
 
-  const degrees = assignDegrees(fixture.props.map((prop) => prop.id), 123, "daylight");
+  const degrees = assignDegrees(fixture.props.map((prop) => prop.id), 123, "ionian");
   const right = presses.find((event) => event.propId === "ball.B" && event.sceneTime === 0.3);
   const left = presses.find((event) => event.propId === "ball.A" && event.sceneTime === 0.6);
-  assert.equal(right.midi, midiForDegree("daylight", degrees["ball.B"], 0));
-  assert.equal(left.midi, midiForDegree("daylight", degrees["ball.A"], -1));
+  assert.equal(right.midi, midiForDegree("daylight", "ionian", degrees["ball.B"], 0));
+  assert.equal(left.midi, midiForDegree("daylight", "ionian", degrees["ball.A"], -1));
+  assert.equal(log.scaleId, "ionian");
 });
 
 test("sceneToEvents loops to the take boundary without exceeding it", () => {
   const log = sceneToEvents(fixture, {
     worldId: "daylight",
+    scaleId: "ionian",
     seed: 7,
     bpm: 100,
     bars: 16,
@@ -78,10 +81,10 @@ test("sceneToEvents loops to the take boundary without exceeding it", () => {
 
 test("quantize setting uses the shared grid rule", () => {
   const off = sceneToEvents(fixture, {
-    worldId: "night", seed: 9, bpm: 88, bars: 1, quantize: { enabled: false, division: null },
+    worldId: "night", scaleId: "aeolian", seed: 9, bpm: 88, bars: 1, quantize: { enabled: false, division: null },
   });
   const eighth = sceneToEvents(fixture, {
-    worldId: "night", seed: 9, bpm: 88, bars: 1, quantize: { enabled: true, division: 2 },
+    worldId: "night", scaleId: "aeolian", seed: 9, bpm: 88, bars: 1, quantize: { enabled: true, division: 2 },
   });
   assert.equal(off.events.find((event) => event.kind === "press").time, 0.3);
   assert.notEqual(eighth.events.find((event) => event.kind === "press").time, 0.3);

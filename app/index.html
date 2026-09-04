@@ -6,15 +6,16 @@
   <meta name="description" content="PCキーボードのA〜Zで、ランダムなスケール配置を演奏するブラウザアプリ">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./style.css">
-  <title>random-scale-keys v0.6.0</title>
+  <title>random-scale-keys v0.7.0</title>
 </head>
 <body tabindex="-1">
   <canvas id="terrain" aria-hidden="true"></canvas>
+  <div id="progress-track" role="progressbar" aria-label="テイクの進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-fill"></span></div>
   <div id="tension-track" aria-hidden="true"><span id="tension-fill"></span></div>
 
   <main class="app-shell">
     <header class="topbar">
-      <p class="version">random-scale-keys v0.6.0</p>
+      <p class="version">random-scale-keys v0.7.0</p>
       <p class="take-status" aria-live="polite">
         <span id="status-world">世界 daylight</span>
         <span aria-hidden="true">／</span>
@@ -23,6 +24,7 @@
         <strong id="status-label">待機</strong>
         <span id="status-position"></span>
         <span id="status-section"></span>
+        <span id="status-remaining"></span>
       </p>
       <button id="primary-action" class="button button-primary" type="button">演奏開始</button>
     </header>
@@ -40,6 +42,41 @@
             <select id="world" name="world">
               <option value="daylight">daylight</option>
               <option value="night">night</option>
+            </select>
+          </label>
+          <label class="performance-setting">スケール
+            <select id="scale" name="scale">
+              <optgroup label="教会旋法">
+                <option value="ionian">イオニアン（メジャー）</option>
+                <option value="dorian">ドリアン</option>
+                <option value="phrygian">フリジアン</option>
+                <option value="lydian">リディアン</option>
+                <option value="mixolydian">ミクソリディアン</option>
+                <option value="aeolian">エオリアン（ナチュラル・マイナー）</option>
+                <option value="locrian">ロクリアン</option>
+              </optgroup>
+              <optgroup label="短音階の変種">
+                <option value="harmonic_minor">ハーモニック・マイナー</option>
+                <option value="melodic_minor">メロディック・マイナー</option>
+              </optgroup>
+              <optgroup label="五音音階・ブルース">
+                <option value="major_pentatonic">メジャー・ペンタトニック</option>
+                <option value="minor_pentatonic">マイナー・ペンタトニック</option>
+                <option value="blues">ブルース</option>
+                <option value="whole_tone">ホールトーン</option>
+              </optgroup>
+              <optgroup label="日本の音階">
+                <option value="yo">陽音階</option>
+                <option value="in_sen">陰音階（都節）</option>
+                <option value="hirajoshi">平調子</option>
+                <option value="ryukyu">琉球音階</option>
+              </optgroup>
+              <optgroup label="その他の民族音階">
+                <option value="hijaz">ヒジャーズ</option>
+                <option value="hungarian_minor">ハンガリアン・マイナー</option>
+                <option value="double_harmonic">ダブル・ハーモニック</option>
+                <option value="egyptian">エジプシャン</option>
+              </optgroup>
             </select>
           </label>
           <label class="performance-setting">クオンタイズ
@@ -75,6 +112,7 @@
       <aside id="finished-panel" class="finished-panel" aria-labelledby="finished-title" hidden>
         <h1 id="finished-title">テイク完了</h1>
         <p id="take-summary"></p>
+        <p id="scale-summary"></p>
         <p id="loaded-take" class="loaded-take" hidden></p>
         <p id="scene-summary" class="scene-summary" hidden></p>
         <div class="export-actions">

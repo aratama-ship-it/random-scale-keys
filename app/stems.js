@@ -51,6 +51,7 @@ export async function renderStemToWav(log, stem) {
   const context = new OfflineAudioContext(2, Math.ceil(duration * SAMPLE_RATE), SAMPLE_RATE);
   const synth = createSynth(context, {
     worldId: log.worldId,
+    scaleId: log.scaleId,
     bpm: log.bpm,
     seed: log.seed,
     stem,

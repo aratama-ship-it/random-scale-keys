@@ -1,19 +1,22 @@
 import {
   accentForBeat,
   answerDegree,
+  chordDegreeNotes,
   chordForBar,
   chordToneWeight,
   decayTension,
   getWorld,
+  getScale,
   hashSeed,
   isResolution,
   midiForDegree,
   mulberry32,
   noteLengthFromInterval,
   quantize as quantizeTime,
+  resolveScaleId,
   roleForDegree,
   sectionForBar,
-  tonicChordForWorld,
+  tonicChordForScale,
   updateTension,
   velocityFromInterval,
 } from "../prototype/gravity.mjs";
@@ -63,15 +66,17 @@ export function detectFormat(value) {
   return "unknown";
 }
 
-export function assignDegrees(propIds, seed, worldId) {
-  getWorld(worldId);
+export function assignDegrees(propIds, seed, scaleId) {
+  const scale = getScale(scaleId);
   if (!Array.isArray(propIds)) throw new TypeError("propIds must be an array");
   const ids = [...new Set(propIds.map(String))];
   const random = mulberry32(hashSeed(seed));
   const result = {};
   let degreePool = [];
   ids.forEach((propId) => {
-    if (degreePool.length === 0) degreePool = shuffled([1, 2, 3, 4, 5, 6, 7], random);
+    if (degreePool.length === 0) {
+      degreePool = shuffled(Array.from({ length: scale.intervals.length }, (_, index) => index + 1), random);
+    }
     result[propId] = degreePool.shift();
   });
   return result;
@@ -131,15 +136,16 @@ function sceneProps(scene) {
   return [...new Set(ids)];
 }
 
-export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}) {
+export function sceneToEvents(scene, { worldId, scaleId: requestedScaleId, seed, bpm, bars, quantize } = {}) {
   validateScene(scene);
   const world = getWorld(worldId);
+  const scaleId = resolveScaleId(worldId, requestedScaleId);
   if (!(Number.isFinite(bpm) && bpm > 0)) throw new TypeError("bpm が正の数値ではありません");
   if (!(Number.isInteger(bars) && bars > 0)) throw new TypeError("bars が正の整数ではありません");
 
   const normalizedSeed = hashSeed(seed);
   const quantizeSetting = normalizedQuantize(quantize);
-  const assignments = assignDegrees(sceneProps(scene), normalizedSeed, worldId);
+  const assignments = assignDegrees(sceneProps(scene), normalizedSeed, scaleId);
   const flights = new Map(flightTimes(scene).map((entry) => [entry.catchId, entry.flightSec]));
   const duration = scene.timeline.durationSeconds;
   const beatSec = 60 / bpm;
@@ -172,7 +178,7 @@ export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}
   let lastPressBeat = 0;
   let lastRawCatchTime = -Infinity;
   let lastPressEvent;
-  let currentChord = tonicChordForWorld(worldId);
+  let currentChord = tonicChordForScale(scaleId);
   let pendingResolutionBeat = Infinity;
   let answerCount = 0;
   let motionIndex = 0;
@@ -184,12 +190,12 @@ export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}
     const degree = assignments[source.propId];
     if (!degree) throw new TypeError(`propId ${source.propId} に度数を割り当てられません`);
     const octave = source.handJoint === "wrist.L" ? -1 : 0;
-    const role = roleForDegree(worldId, degree);
+    const role = roleForDegree(scaleId, degree);
     const common = {
       time,
       beat,
       code: null,
-      midi: midiForDegree(worldId, degree, octave),
+      midi: midiForDegree(worldId, scaleId, degree, octave),
       degree,
       role,
       effect: "none",
@@ -220,10 +226,10 @@ export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}
     const interval = rawTime - lastRawCatchTime;
     const deltaBeats = Math.max(0, beat - lastTensionBeat);
     const previousTension = decayTension(tension, deltaBeats);
-    const nextTension = updateTension(tension, deltaBeats, role);
+    const nextTension = updateTension(tension, deltaBeats, role, scaleId);
     const resolution = isResolution(previousTension, nextTension, role);
     const accent = accentForBeat(beat % BEATS_PER_BAR);
-    const chordWeight = chordToneWeight(world.chords[currentChord], degree);
+    const chordWeight = chordToneWeight(chordDegreeNotes(scaleId, currentChord), degree);
     const silenceBeforePress = beat - lastPressBeat;
     const returnGain = silenceBeforePress >= 4 ? 1.2 : 1;
     const returnLength = silenceBeforePress >= 4 ? 1.5 : 1;
@@ -256,13 +262,13 @@ export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}
     if (section === "end") {
       tension = decayTension(tension, beat - lastTensionBeat);
       lastTensionBeat = beat;
-      currentChord = tonicChordForWorld(worldId);
+      currentChord = tonicChordForScale(scaleId);
     } else {
       resolving = beat >= pendingResolutionBeat;
       if (stepInBar === 0) {
         tension = decayTension(tension, beat - lastTensionBeat);
         lastTensionBeat = beat;
-        currentChord = resolving ? tonicChordForWorld(worldId) : chordForBar(worldId, barIndex, tension);
+        currentChord = resolving ? tonicChordForScale(scaleId) : chordForBar(scaleId, barIndex, tension);
       }
     }
 
@@ -274,15 +280,15 @@ export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}
       && lastPressEvent.beat < beat
       && lastPressEvent.role !== "stable";
     if (schedulesAnswer) {
-      const degree = answerDegree(worldId, lastPressEvent.degree, currentChord);
+      const degree = answerDegree(scaleId, lastPressEvent.degree, currentChord);
       addEvent({
         time: beat * beatSec,
         beat,
         kind: "answer",
         code: null,
-        midi: midiForDegree(worldId, degree, 0),
+        midi: midiForDegree(worldId, scaleId, degree, 0),
         degree,
-        role: roleForDegree(worldId, degree),
+        role: roleForDegree(scaleId, degree),
         effect: "none",
         velocity: 0.45,
         length: 0.6,
@@ -295,7 +301,7 @@ export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}
       answerCount += 1;
     }
     if (section !== "end" && resolving) {
-      currentChord = tonicChordForWorld(worldId);
+      currentChord = tonicChordForScale(scaleId);
       pendingResolutionBeat = Infinity;
     }
   };
@@ -319,6 +325,7 @@ export function sceneToEvents(scene, { worldId, seed, bpm, bars, quantize } = {}
   return {
     version: "gravity-v0",
     worldId,
+    scaleId,
     seed: normalizedSeed,
     bpm,
     bars,

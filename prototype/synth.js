@@ -4,6 +4,8 @@ import {
   getWorld,
   mulberry32,
   padDetuneForTension,
+  resolveScaleId,
+  tonicChordForScale,
 } from "./gravity.mjs";
 
 const MIN_GAIN = 0.0001;
@@ -64,11 +66,12 @@ function whiteNoiseBuffer(context, duration, random) {
   return buffer;
 }
 
-export function createSynth(context, { worldId, bpm, destination = context.destination, seed = 1, stem = null }) {
+export function createSynth(context, { worldId, scaleId: requestedScaleId, bpm, destination = context.destination, seed = 1, stem = null }) {
   if (stem !== null && !["lead", "accomp", "fx"].includes(stem)) {
     throw new TypeError(`Unknown stem: ${stem}`);
   }
   const world = getWorld(worldId);
+  const scaleId = resolveScaleId(worldId, requestedScaleId);
   const beatSec = 60 / bpm;
   const isStem = stem !== null;
   const impulseRandom = mulberry32(seed);
@@ -299,7 +302,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   }
 
   function schedulePad(chordName, when, duration, tension = 0, options = {}) {
-    const notes = chordMidiNotes(worldId, chordName, -1);
+    const notes = chordMidiNotes(worldId, scaleId, chordName, -1);
     const envelope = worldId === "daylight"
       ? { attack: 0.8, decay: 0.01, sustain: 1, release: 1.5 }
       : { attack: 1.2, decay: 0.01, sustain: 1, release: 2 };
@@ -436,7 +439,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   }
 
   function scheduleEnding(when) {
-    const tonic = worldId === "daylight" ? "I" : "i";
+    const tonic = tonicChordForScale(scaleId);
     const rootMidi = world.rootMidi;
     schedulePad(tonic, when, 0.1, 0, { release: 2.5 });
     scheduleLead({ midi: rootMidi }, when, 0.1, 0.45, "none", 0, { release: 2.5, stemRole: "accomp" });
@@ -453,6 +456,7 @@ export function createSynth(context, { worldId, bpm, destination = context.desti
   return {
     context,
     worldId,
+    scaleId,
     bpm,
     beatSec,
     scheduleLead,

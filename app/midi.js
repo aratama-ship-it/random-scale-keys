@@ -1,4 +1,9 @@
-import { chordMidiNotes, getWorld } from "../prototype/gravity.mjs";
+import {
+  chordMidiNotes,
+  getWorld,
+  resolveScaleId,
+  tonicChordForScale,
+} from "../prototype/gravity.mjs";
 import { downloadBlob, scheduleRecordedTake } from "../prototype/render.js";
 import { exportTimestamp } from "./stems.js";
 
@@ -45,7 +50,8 @@ function note(track, trackName, midi, when, length, velocity) {
   });
 }
 
-export function createMidiRecorder({ worldId, bpm }) {
+export function createMidiRecorder({ worldId, scaleId: requestedScaleId, bpm }) {
+  const scaleId = resolveScaleId(worldId, requestedScaleId);
   const beatSec = 60 / bpm;
   const tracks = { lead: [], pad: [], bass: [], drums: [] };
 
@@ -60,7 +66,7 @@ export function createMidiRecorder({ worldId, bpm }) {
   }
 
   function schedulePad(chordName, when, duration) {
-    chordMidiNotes(worldId, chordName, -1).forEach((midi) => {
+    chordMidiNotes(worldId, scaleId, chordName, -1).forEach((midi) => {
       note(tracks.pad, "pad", midi, when, duration, 1);
     });
   }
@@ -78,7 +84,7 @@ export function createMidiRecorder({ worldId, bpm }) {
   }
 
   function scheduleEnding(when) {
-    const tonic = worldId === "daylight" ? "I" : "i";
+    const tonic = tonicChordForScale(scaleId);
     const rootMidi = getWorld(worldId).rootMidi;
     schedulePad(tonic, when, 0.1);
     scheduleLead({ midi: rootMidi }, when, 0.1, 0.45);
@@ -88,6 +94,7 @@ export function createMidiRecorder({ worldId, bpm }) {
   return {
     context: { currentTime: 0, sampleRate: 44100 },
     worldId,
+    scaleId,
     bpm,
     beatSec,
     tracks,

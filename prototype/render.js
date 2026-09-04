@@ -8,14 +8,15 @@ import {
   hatSwingSeconds,
   kickForStep,
   reverbSendFromSilence,
+  resolveScaleId,
   sectionForBar,
   snareForStep,
-  tonicChordForWorld,
+  tonicChordForScale,
 } from "./gravity.mjs";
 import { createSynth } from "./synth.js";
 
-function rootMidiForChord(worldId, chordName) {
-  return chordRootMidi(worldId, chordName, 2);
+function rootMidiForChord(worldId, scaleId, chordName) {
+  return chordRootMidi(worldId, scaleId, chordName, 2);
 }
 
 export function partitionEventsByBar(events, bars, beatsPerBar = 4) {
@@ -29,6 +30,7 @@ export function partitionEventsByBar(events, bars, beatsPerBar = 4) {
 
 export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBeat = 0, toBeat = Infinity) {
   const world = getWorld(log.worldId);
+  const scaleId = resolveScaleId(log.worldId, log.scaleId);
   const bpm = log.bpm;
   const beatSec = 60 / bpm;
   const bars = log.bars;
@@ -38,7 +40,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
   let tension = 0;
   let lastTensionBeat = 0;
   let lastPressBeat = 0;
-  let chordName = tonicChordForWorld(log.worldId);
+  let chordName = tonicChordForScale(scaleId);
   let pendingResolutionBeat = Infinity;
   let resolutionReverbUntilBeat = -Infinity;
 
@@ -77,8 +79,8 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
       tension = decayTension(tension, beat - lastTensionBeat);
       lastTensionBeat = beat;
       chordName = resolving
-        ? tonicChordForWorld(log.worldId)
-        : chordForBar(log.worldId, barIndex, tension);
+        ? tonicChordForScale(scaleId)
+        : chordForBar(scaleId, barIndex, tension);
       if (schedulesStep) {
         synth.schedulePad(chordName, startTime + beat * beatSec, beatSec * 4, tension, {
           octaveLayer: section === "b",
@@ -94,7 +96,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     }
 
     if (resolving) {
-      chordName = tonicChordForWorld(log.worldId);
+      chordName = tonicChordForScale(scaleId);
       if (schedulesStep) {
         if (stepInBar !== 0) synth.schedulePad(chordName, when, beatSec * (4 - (beat % 4)), tension);
         synth.scheduleResolution(world.rootMidi, when);
@@ -107,7 +109,7 @@ export function scheduleRecordedTake(context, synth, log, startTime = 0, fromBea
     if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
     const bassGain = bassGainForStep(log.worldId, section, stepInBar);
     if (bassGain !== null) {
-      synth.scheduleBass(rootMidiForChord(log.worldId, chordName), when, beatSec * 0.45, bassGain);
+      synth.scheduleBass(rootMidiForChord(log.worldId, scaleId, chordName), when, beatSec * 0.45, bassGain);
     }
     if (snareForStep(section, stepInBar)) {
       synth.scheduleSnare(when);
@@ -128,7 +130,12 @@ export async function renderTakeToWav(log) {
   const duration = log.bars * 4 * (60 / log.bpm) + 4;
   const sampleRate = 44100;
   const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
-  const synth = createSynth(context, { worldId: log.worldId, bpm: log.bpm, seed: log.seed });
+  const synth = createSynth(context, {
+    worldId: log.worldId,
+    scaleId: resolveScaleId(log.worldId, log.scaleId),
+    bpm: log.bpm,
+    seed: log.seed,
+  });
   const beatSec = 60 / log.bpm;
   const barsAtSuspendFrame = new Map();
 

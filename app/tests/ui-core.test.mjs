@@ -9,6 +9,7 @@ import {
   marchingSquares,
   parseParams,
   pressTracker,
+  remainingSeconds,
   roleElevation,
   rowOffsetPx,
   transition,
@@ -41,11 +42,19 @@ test("transition covers the four-state flow and leaves invalid events unchanged"
   assert.equal(transition("unknown", "START"), "unknown");
 });
 
-test("parseParams and formatParams round-trip and reject unknown worlds", () => {
-  const parsed = parseParams("?world=night&seed=abc");
-  assert.deepEqual(parsed, { world: "night", seed: "abc" });
+test("parseParams and formatParams round-trip and resolve unknown world or scale values", () => {
+  const parsed = parseParams("?world=night&scale=hirajoshi&seed=abc");
+  assert.deepEqual(parsed, { world: "night", scale: "hirajoshi", seed: "abc" });
   assert.deepEqual(parseParams(formatParams(parsed)), parsed);
-  assert.deepEqual(parseParams("?world=space&seed=42"), { world: "daylight", seed: "42" });
+  assert.deepEqual(parseParams("?world=space&scale=unknown&seed=42"), { world: "daylight", scale: "ionian", seed: "42" });
+  assert.deepEqual(parseParams("?world=night&scale=unknown&seed=42"), { world: "night", scale: "aeolian", seed: "42" });
+});
+
+test("remainingSeconds is integral, clamps before start, and never becomes negative", () => {
+  assert.equal(remainingSeconds(8, 10, 50.4), 41);
+  assert.equal(remainingSeconds(27.1, 10, 50.4), 24);
+  assert.equal(remainingSeconds(50.4, 10, 50.4), 0);
+  assert.equal(remainingSeconds(60, 10, 50.4), 0);
 });
 
 test("rowOffsetPx preserves the physical row ratios", () => {
@@ -93,6 +102,7 @@ function validTakeLog() {
   return {
     version: "gravity-v0",
     worldId: "daylight",
+    scaleId: "ionian",
     seed: 42,
     bpm: 100,
     bars: 16,
@@ -106,6 +116,10 @@ test("validateTakeLog accepts the contract and explains rejected logs", () => {
   assert.match(validateTakeLog({ ...validTakeLog(), version: "other" }).reason, /version/);
   assert.match(validateTakeLog({ ...validTakeLog(), events: undefined }).reason, /events/);
   assert.match(validateTakeLog({ ...validTakeLog(), worldId: "space" }).reason, /worldId/);
+  assert.match(validateTakeLog({ ...validTakeLog(), scaleId: "unknown" }).reason, /scaleId/);
+  const legacy = validTakeLog();
+  delete legacy.scaleId;
+  assert.deepEqual(validateTakeLog(legacy), { ok: true });
 });
 
 test("pressTracker retains the maximum after keys are released", () => {

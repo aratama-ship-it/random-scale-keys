@@ -8,6 +8,7 @@
   --key-size:64px; --key-gap:8px; --radius-s:6px; --radius-m:10px; --radius-l:16px;
   --duration-press:80ms; --duration-tense:600ms; --duration-bloom:900ms;
   --contour-alpha:0.10; --contour-alpha-ridge:0.16; --contour-width:1px;
+  --progress-height:3px; --progress-track-alpha:0.12;
   --ease-standard:cubic-bezier(0.2,0,0,1);
   --topbar-height:56px; --layout-max:1200px; --finished-width:360px;
   --line:1px; --line-alpha:15%; --press-line:1.5px; --press-shift:2px;
@@ -64,9 +65,24 @@ select:disabled { cursor: not-allowed; opacity: var(--disabled-opacity); }
   pointer-events: none;
 }
 
-#tension-track {
+#progress-track {
   position: fixed;
   inset: 0 0 auto;
+  height: var(--progress-height);
+  z-index: 3;
+  background: color-mix(in srgb, var(--text) calc(var(--progress-track-alpha) * 100%), transparent);
+}
+
+#progress-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--ink-floating);
+}
+
+#tension-track {
+  position: fixed;
+  inset: var(--progress-height) 0 auto;
   height: calc(var(--space-1) + var(--press-shift));
   z-index: 2;
   background: color-mix(in srgb, var(--text) var(--line-alpha), transparent);
@@ -115,6 +131,7 @@ select:disabled { cursor: not-allowed; opacity: var(--disabled-opacity); }
 .countin { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 
 .take-status { text-align: center; color: var(--text-sub); background: var(--bg); }
+.take-status #status-remaining { font-size: var(--fs-small); line-height: var(--lh-small); color: var(--text-sub); }
 .take-status strong { color: var(--text); font-size: var(--fs-h1); line-height: var(--lh-h1); font-weight: var(--weight-semibold); }
 body[data-high-tension="true"] .take-status { color: var(--text); }
 body[data-high-tension="true"] .text-button { color: var(--text); }
@@ -319,6 +336,7 @@ body[data-imported="true"] .legend { display: none; }
 
 @media (max-width: 599.98px) {
   #terrain,
+  #progress-track,
   #tension-track,
   .topbar,
   .terrain-stage,

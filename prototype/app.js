@@ -2,6 +2,7 @@ import {
   accentForBeat,
   answerDegree,
   bassGainForStep,
+  chordDegreeNotes,
   chordForBar,
   chordRootMidi,
   chordToneWeight,
@@ -19,7 +20,7 @@ import {
   roleForDegree,
   sectionForBar,
   snareForStep,
-  tonicChordForWorld,
+  tonicChordForScale,
   updateTension,
   velocityFromInterval,
 } from "./gravity.mjs";
@@ -133,7 +134,7 @@ function renderLayout() {
 function rebuildLayout() {
   layout = createLayout(normalizedInputSeed(), elements.world.value);
   elements.seed.value = String(layout.seed);
-  currentChord = tonicChordForWorld(layout.worldId);
+  currentChord = tonicChordForScale(layout.scaleId);
   elements.chord.textContent = currentChord;
   renderLayout();
 }
@@ -142,8 +143,8 @@ function setKeyPressed(code, pressed) {
   elements.layout.querySelector(`[data-code="${code}"]`)?.classList.toggle("pressed", pressed);
 }
 
-function rootMidiForChord(worldId, chordName) {
-  return chordRootMidi(worldId, chordName, 2);
+function rootMidiForChord(worldId, scaleId, chordName) {
+  return chordRootMidi(worldId, scaleId, chordName, 2);
 }
 
 function showAnswer(degree) {
@@ -162,15 +163,15 @@ function scheduleAnswerDisplay(degree, delayMs) {
 function scheduleAnswerAtBoundary(beat, when, section) {
   if (beat === 0 || beat % 8 !== 0 || answerCount >= 8 || !lastPressEvent) return;
   if (lastPressEvent.beat < beat - 1 || lastPressEvent.beat >= beat || lastPressEvent.role === "stable") return;
-  const degree = answerDegree(layout.worldId, lastPressEvent.degree, currentChord);
+  const degree = answerDegree(layout.scaleId, lastPressEvent.degree, currentChord);
   const event = {
     time: when - takeStart,
     beat,
     kind: "answer",
     code: null,
-    midi: midiForDegree(layout.worldId, degree, 0),
+    midi: midiForDegree(layout.worldId, layout.scaleId, degree, 0),
     degree,
-    role: roleForDegree(layout.worldId, degree),
+    role: roleForDegree(layout.scaleId, degree),
     effect: "none",
     velocity: 0.45,
     length: 0.6,
@@ -200,7 +201,7 @@ function scheduleAccompanimentStep(step) {
   if (section === "end") {
     tension = decayTension(tension, beat - lastTensionBeat);
     lastTensionBeat = beat;
-    currentChord = tonicChordForWorld(layout.worldId);
+    currentChord = tonicChordForScale(layout.scaleId);
     scheduleAnswerAtBoundary(beat, when, section);
     return;
   }
@@ -210,8 +211,8 @@ function scheduleAccompanimentStep(step) {
     tension = decayTension(tension, beat - lastTensionBeat);
     lastTensionBeat = beat;
     currentChord = resolving
-      ? tonicChordForWorld(layout.worldId)
-      : chordForBar(layout.worldId, barIndex, tension);
+      ? tonicChordForScale(layout.scaleId)
+      : chordForBar(layout.scaleId, barIndex, tension);
     synth.schedulePad(currentChord, when, beatSec * 4, tension, { octaveLayer: section === "b" });
   }
 
@@ -224,7 +225,7 @@ function scheduleAccompanimentStep(step) {
   }
 
   if (resolving) {
-    currentChord = tonicChordForWorld(layout.worldId);
+    currentChord = tonicChordForScale(layout.scaleId);
     if (stepInBar !== 0) synth.schedulePad(currentChord, when, beatSec * (4 - (beat % 4)), tension);
     synth.scheduleResolution(world.rootMidi, when);
     pendingResolutionBeat = Infinity;
@@ -234,7 +235,7 @@ function scheduleAccompanimentStep(step) {
   if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
   const bassGain = bassGainForStep(layout.worldId, section, stepInBar);
   if (bassGain !== null) {
-    synth.scheduleBass(rootMidiForChord(layout.worldId, currentChord), when, beatSec * 0.45, bassGain);
+    synth.scheduleBass(rootMidiForChord(layout.worldId, layout.scaleId, currentChord), when, beatSec * 0.45, bassGain);
   }
   if (snareForStep(section, stepInBar)) {
     synth.scheduleSnare(when);
@@ -296,7 +297,7 @@ async function startTake() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   audioContext = new AudioContextClass();
   await audioContext.resume();
-  synth = createSynth(audioContext, { worldId: layout.worldId, bpm: world.bpm, seed: layout.seed });
+  synth = createSynth(audioContext, { worldId: layout.worldId, scaleId: layout.scaleId, bpm: world.bpm, seed: layout.seed });
   const countInStart = audioContext.currentTime + 0.08;
   takeStart = countInStart + synth.beatSec * 4;
   takeEnd = takeStart + synth.beatSec * BARS * 4;
@@ -308,13 +309,14 @@ async function startTake() {
   lastPhysicalPressTime = -Infinity;
   lastPressEvent = null;
   answerCount = 0;
-  currentChord = tonicChordForWorld(layout.worldId);
+  currentChord = tonicChordForScale(layout.scaleId);
   pendingResolutionBeat = Infinity;
   resolutionReverbUntilBeat = -Infinity;
   nextStep = 0;
   takeLog = {
     version: "gravity-v0.2",
     worldId: layout.worldId,
+    scaleId: layout.scaleId,
     seed: layout.seed,
     bpm: world.bpm,
     bars: BARS,
@@ -346,7 +348,7 @@ async function replayTake() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   audioContext = new AudioContextClass();
   await audioContext.resume();
-  synth = createSynth(audioContext, { worldId: takeLog.worldId, bpm: takeLog.bpm, seed: takeLog.seed });
+  synth = createSynth(audioContext, { worldId: takeLog.worldId, scaleId: takeLog.scaleId, bpm: takeLog.bpm, seed: takeLog.seed });
   const replayStart = audioContext.currentTime + 0.08;
   scheduleRecordedTake(audioContext, synth, takeLog, replayStart);
   takeLog.events.filter((event) => event.kind === "answer").forEach((event) => {
@@ -388,14 +390,14 @@ function handleKeyDown(event) {
   const silenceBeforePress = beat - lastPressBeat;
   const section = sectionForBar(Math.floor(beat / 4));
   const accent = accentForBeat(beat % 4);
-  const chordWeight = chordToneWeight(getWorld(layout.worldId).chords[currentChord], assignment.degree);
+  const chordWeight = chordToneWeight(chordDegreeNotes(layout.scaleId, currentChord), assignment.degree);
   const returnGain = silenceBeforePress >= 4 ? 1.2 : 1;
   const returnLength = silenceBeforePress >= 4 ? 1.5 : 1;
   const velocity = velocityFromInterval(interval) * accent.gain * chordWeight.gain * returnGain;
   const length = noteLengthFromInterval(interval) * accent.length * chordWeight.length * returnLength;
   const deltaBeats = Math.max(0, beat - lastTensionBeat);
   const previousTension = decayTension(tension, deltaBeats);
-  const nextTension = updateTension(tension, deltaBeats, assignment.role);
+  const nextTension = updateTension(tension, deltaBeats, assignment.role, layout.scaleId);
   const resolution = isResolution(previousTension, nextTension, assignment.role);
 
   tension = nextTension;
@@ -439,7 +441,7 @@ function updateDisplay() {
     }
     if (audioContext.currentTime >= takeStart) {
       const beat = Math.max(0, Math.min(BARS * 4, (audioContext.currentTime - takeStart) / synth.beatSec));
-      if (beat >= BARS * 4) currentChord = tonicChordForWorld(layout.worldId);
+      if (beat >= BARS * 4) currentChord = tonicChordForScale(layout.scaleId);
       const displayedTension = decayTension(tension, Math.max(0, beat - lastTensionBeat));
       const bar = Math.min(BARS, Math.floor(beat / 4) + 1);
       const beatInBar = Math.min(4, Math.floor(beat % 4) + 1);

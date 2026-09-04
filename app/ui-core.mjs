@@ -1,3 +1,5 @@
+import { SCALES, resolveScaleId } from "../prototype/gravity.mjs";
+
 const VALID_WORLDS = new Set(["daylight", "night"]);
 
 export function lerpColor(fromHex, toHex, amount) {
@@ -35,17 +37,28 @@ export function diagnosticDisabledForState(state) {
 export function parseParams(search = "") {
   const params = new URLSearchParams(search);
   const requestedWorld = params.get("world");
+  const world = VALID_WORLDS.has(requestedWorld) ? requestedWorld : "daylight";
   return {
-    world: VALID_WORLDS.has(requestedWorld) ? requestedWorld : "daylight",
+    world,
+    scale: resolveScaleId(world, params.get("scale")),
     seed: params.get("seed") ?? "",
   };
 }
 
-export function formatParams({ world, seed }) {
+export function formatParams({ world, scale, seed }) {
   const params = new URLSearchParams();
-  params.set("world", VALID_WORLDS.has(world) ? world : "daylight");
+  const validWorld = VALID_WORLDS.has(world) ? world : "daylight";
+  params.set("world", validWorld);
+  params.set("scale", resolveScaleId(validWorld, scale));
   params.set("seed", String(seed ?? ""));
   return `?${params.toString()}`;
+}
+
+export function remainingSeconds(now, takeStart, takeEnd) {
+  if (![now, takeStart, takeEnd].every(Number.isFinite)) {
+    throw new TypeError("now, takeStart, and takeEnd must be finite numbers");
+  }
+  return Math.ceil(Math.max(0, takeEnd - Math.max(now, takeStart)));
 }
 
 export function rowOffsetPx(rowIndex, keySize) {
@@ -118,6 +131,7 @@ export function validateTakeLog(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ok: false, reason: "JSONのルートがオブジェクトではありません" };
   if (value.version !== "gravity-v0") return { ok: false, reason: "version が gravity-v0 ではありません" };
   if (!VALID_WORLDS.has(value.worldId)) return { ok: false, reason: "worldId が daylight または night ではありません" };
+  if (value.scaleId !== undefined && !Object.hasOwn(SCALES, value.scaleId)) return { ok: false, reason: "scaleId が既知の音階ではありません" };
   if (typeof value.seed !== "number" || !Number.isFinite(value.seed)) return { ok: false, reason: "seed が数値ではありません" };
   if (typeof value.bpm !== "number" || !Number.isFinite(value.bpm) || value.bpm <= 0) return { ok: false, reason: "bpm が正の数値ではありません" };
   if (!Number.isInteger(value.bars) || value.bars <= 0) return { ok: false, reason: "bars が正の整数ではありません" };

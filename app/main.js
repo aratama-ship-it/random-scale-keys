@@ -2,11 +2,13 @@ import {
   accentForBeat,
   answerDegree,
   bassGainForStep,
+  chordDegreeNotes,
   chordForBar,
   chordRootMidi,
   chordToneWeight,
   createLayout,
   decayTension,
+  getScale,
   getWorld,
   hatForStep,
   hatSwingSeconds,
@@ -16,10 +18,11 @@ import {
   noteLengthFromInterval,
   quantize,
   reverbSendFromSilence,
+  resolveScaleId,
   roleForDegree,
   sectionForBar,
   snareForStep,
-  tonicChordForWorld,
+  tonicChordForScale,
   updateTension,
   velocityFromInterval,
 } from "../prototype/gravity.mjs";
@@ -33,6 +36,7 @@ import {
   formatParams,
   parseParams,
   pressTracker,
+  remainingSeconds,
   rowOffsetPx,
   transition,
   validateTakeLog,
@@ -92,6 +96,11 @@ const elements = {
   tensionFill: document.querySelector("#tension-fill"),
   stems: document.querySelector("#stems"),
   midi: document.querySelector("#midi"),
+  progressFill: document.querySelector("#progress-fill"),
+  progressTrack: document.querySelector("#progress-track"),
+  remaining: document.querySelector("#status-remaining"),
+  scale: document.querySelector("#scale"),
+  scaleSummary: document.querySelector("#scale-summary"),
   wav: document.querySelector("#wav"),
   world: document.querySelector("#world"),
 };
@@ -146,7 +155,11 @@ function selectedQuantize() {
 }
 
 function updateUrl() {
-  history.replaceState(null, "", formatParams({ world: elements.world.value, seed: elements.seed.value }));
+  history.replaceState(null, "", formatParams({
+    world: elements.world.value,
+    scale: elements.scale.value,
+    seed: elements.seed.value,
+  }));
 }
 
 function cssNumber(name) {
@@ -219,11 +232,12 @@ function renderLayout() {
 }
 
 function rebuildLayout({ replaceUrl = true, imported = false } = {}) {
-  layout = createLayout(normalizedSeed(), elements.world.value);
+  layout = createLayout(normalizedSeed(), elements.world.value, elements.scale.value);
   elements.seed.value = String(layout.seed);
+  elements.scale.value = layout.scaleId;
   document.documentElement.dataset.world = layout.worldId;
   document.body.dataset.imported = String(imported);
-  currentChord = tonicChordForWorld(layout.worldId);
+  currentChord = tonicChordForScale(layout.scaleId);
   terrain.setWorld();
   renderLayout();
   if (replaceUrl) updateUrl();
@@ -287,12 +301,13 @@ function updateFinishedPanel() {
   const seconds = takeLog.bars * PERFORMANCE.beatsPerBar * 60 / takeLog.bpm;
   const presses = takeLog.events.filter((event) => event.kind === "press").length;
   elements.takeSummary.textContent = `${seconds.toFixed(1)}秒・${takeLog.bars}小節・打鍵 ${presses}`;
+  elements.scaleSummary.textContent = `スケール: ${getScale(resolveScaleId(takeLog.worldId, takeLog.scaleId)).label}`;
   elements.loadedTake.hidden = !loadedTakeFilename;
   const loadedKind = loadedSceneSummary ? "シーン" : "テイク";
   elements.loadedTake.textContent = loadedTakeFilename ? `読み込んだ${loadedKind}: ${loadedTakeFilename}` : "";
   elements.sceneSummary.hidden = !loadedSceneSummary;
   elements.sceneSummary.textContent = loadedSceneSummary;
-  elements.shareLink.textContent = `共有リンク: ${formatParams({ world: takeLog.worldId, seed: takeLog.seed })}（配置だけを共有。テイクはWAV/JSONで）`;
+  elements.shareLink.textContent = `共有リンク: ${formatParams({ world: takeLog.worldId, scale: takeLog.scaleId, seed: takeLog.seed })}（配置だけを共有。テイクはWAV/JSONで）`;
 }
 
 function showAnswer(degree) {
@@ -307,22 +322,22 @@ function scheduleAnswerDisplay(degree, delayMs) {
   scheduledAnswerTimers.push(timer);
 }
 
-function rootMidiForChord(worldId, chordName) {
-  return chordRootMidi(worldId, chordName, 2);
+function rootMidiForChord(worldId, scaleId, chordName) {
+  return chordRootMidi(worldId, scaleId, chordName, 2);
 }
 
 function scheduleAnswerAtBoundary(beat, when, section) {
   if (beat === 0 || beat % 8 !== 0 || answerCount >= 8 || !lastPressEvent) return;
   if (lastPressEvent.beat < beat - 1 || lastPressEvent.beat >= beat || lastPressEvent.role === "stable") return;
-  const degree = answerDegree(layout.worldId, lastPressEvent.degree, currentChord);
+  const degree = answerDegree(layout.scaleId, lastPressEvent.degree, currentChord);
   const event = {
     time: when - takeStart,
     beat,
     kind: "answer",
     code: null,
-    midi: midiForDegree(layout.worldId, degree, 0),
+    midi: midiForDegree(layout.worldId, layout.scaleId, degree, 0),
     degree,
-    role: roleForDegree(layout.worldId, degree),
+    role: roleForDegree(layout.scaleId, degree),
     effect: "none",
     velocity: 0.45,
     length: 0.6,
@@ -349,7 +364,7 @@ function scheduleAccompanimentStep(step) {
   if (section === "end") {
     tension = decayTension(tension, beat - lastTensionBeat);
     lastTensionBeat = beat;
-    currentChord = tonicChordForWorld(layout.worldId);
+    currentChord = tonicChordForScale(layout.scaleId);
     scheduleAnswerAtBoundary(beat, when, section);
     return;
   }
@@ -358,7 +373,7 @@ function scheduleAccompanimentStep(step) {
   if (stepInBar === 0) {
     tension = decayTension(tension, beat - lastTensionBeat);
     lastTensionBeat = beat;
-    currentChord = resolving ? tonicChordForWorld(layout.worldId) : chordForBar(layout.worldId, barIndex, tension);
+    currentChord = resolving ? tonicChordForScale(layout.scaleId) : chordForBar(layout.scaleId, barIndex, tension);
     synth.schedulePad(currentChord, when, synth.beatSec * PERFORMANCE.beatsPerBar, tension, { octaveLayer: section === "b" });
   }
 
@@ -368,7 +383,7 @@ function scheduleAccompanimentStep(step) {
   if (beat >= resolutionReverbUntilBeat) synth.setReverbSend(reverbSendFromSilence(silenceBeats), when);
 
   if (resolving) {
-    currentChord = tonicChordForWorld(layout.worldId);
+    currentChord = tonicChordForScale(layout.scaleId);
     if (stepInBar !== 0) synth.schedulePad(currentChord, when, synth.beatSec * (PERFORMANCE.beatsPerBar - (beat % PERFORMANCE.beatsPerBar)), tension);
     synth.scheduleResolution(world.rootMidi, when);
     pendingResolutionBeat = Infinity;
@@ -382,7 +397,7 @@ function scheduleAccompanimentStep(step) {
 
   if (kickForStep(section, stepInBar)) synth.scheduleKick(when);
   const bassGain = bassGainForStep(layout.worldId, section, stepInBar);
-  if (bassGain !== null) synth.scheduleBass(rootMidiForChord(layout.worldId, currentChord), when, synth.beatSec * 0.45, bassGain);
+  if (bassGain !== null) synth.scheduleBass(rootMidiForChord(layout.worldId, layout.scaleId, currentChord), when, synth.beatSec * 0.45, bassGain);
   if (snareForStep(section, stepInBar)) synth.scheduleSnare(when);
   if ((section === "a" || section === "b") && silenceBeats < 8) {
     const hat = hatForStep(currentTension, stepInBar);
@@ -426,7 +441,12 @@ async function beginTake(eventType) {
   if (!AudioContextClass) throw new Error("このブラウザはWeb Audio APIに対応していません");
   audioContext = new AudioContextClass();
   await audioContext.resume();
-  synth = createSynth(audioContext, { worldId: layout.worldId, bpm: world.bpm, seed: layout.seed });
+  synth = createSynth(audioContext, {
+    worldId: layout.worldId,
+    scaleId: layout.scaleId,
+    bpm: world.bpm,
+    seed: layout.seed,
+  });
   state = nextState;
   const countInStart = audioContext.currentTime + PERFORMANCE.audioLeadSeconds;
   takeStart = countInStart + synth.beatSec * PERFORMANCE.beatsPerBar;
@@ -441,13 +461,14 @@ async function beginTake(eventType) {
   lastPhysicalPressTime = -Infinity;
   lastPressEvent = undefined;
   answerCount = 0;
-  currentChord = tonicChordForWorld(layout.worldId);
+  currentChord = tonicChordForScale(layout.scaleId);
   pendingResolutionBeat = Infinity;
   resolutionReverbUntilBeat = -Infinity;
   nextStep = 0;
   takeLog = {
     version: "gravity-v0",
     worldId: layout.worldId,
+    scaleId: layout.scaleId,
     seed: layout.seed,
     bpm: world.bpm,
     bars: PERFORMANCE.bars,
@@ -531,13 +552,18 @@ async function beginReplay() {
   if (!AudioContextClass) throw new Error("このブラウザはWeb Audio APIに対応していません");
   audioContext = new AudioContextClass();
   await audioContext.resume();
-  synth = createSynth(audioContext, { worldId: takeLog.worldId, bpm: takeLog.bpm, seed: takeLog.seed });
+  synth = createSynth(audioContext, {
+    worldId: takeLog.worldId,
+    scaleId: takeLog.scaleId,
+    bpm: takeLog.bpm,
+    seed: takeLog.seed,
+  });
   state = transition(state, "REPLAY");
   takeStart = audioContext.currentTime + PERFORMANCE.audioLeadSeconds;
   takeEnd = takeStart + takeLog.bars * PERFORMANCE.beatsPerBar * synth.beatSec;
   tension = 0;
   lastTensionBeat = 0;
-  currentChord = tonicChordForWorld(takeLog.worldId);
+  currentChord = tonicChordForScale(resolveScaleId(takeLog.worldId, takeLog.scaleId));
   terrain.setTension(0);
   scheduleRecordedTake(audioContext, synth, audibleTakeLog(takeLog), takeStart);
   scheduleReplayVisuals();
@@ -574,14 +600,14 @@ function playCode(code, sourceId = "keyboard") {
   const silenceBeforePress = beat - lastPressBeat;
   const section = sectionForBar(Math.floor(beat / PERFORMANCE.beatsPerBar));
   const accent = accentForBeat(beat % PERFORMANCE.beatsPerBar);
-  const chordWeight = chordToneWeight(getWorld(layout.worldId).chords[currentChord], assignment.degree);
+  const chordWeight = chordToneWeight(chordDegreeNotes(layout.scaleId, currentChord), assignment.degree);
   const returnGain = silenceBeforePress >= 4 ? 1.2 : 1;
   const returnLength = silenceBeforePress >= 4 ? 1.5 : 1;
   const velocity = velocityFromInterval(interval) * accent.gain * chordWeight.gain * returnGain;
   const length = noteLengthFromInterval(interval) * accent.length * chordWeight.length * returnLength;
   const deltaBeats = Math.max(0, beat - lastTensionBeat);
   const previousTension = decayTension(tension, deltaBeats);
-  const nextTension = updateTension(tension, deltaBeats, assignment.role);
+  const nextTension = updateTension(tension, deltaBeats, assignment.role, layout.scaleId);
   const resolution = isResolution(previousTension, nextTension, assignment.role);
 
   tension = nextTension;
@@ -647,9 +673,17 @@ function updateDisplay() {
     if (state === "countin") {
       const beatsLeft = Math.ceil((takeStart - now) / synth.beatSec);
       elements.countin.textContent = beatsLeft > 0 ? String(Math.min(PERFORMANCE.beatsPerBar, beatsLeft)) : "";
+      elements.remaining.textContent = " ／ まもなく開始";
+      elements.progressFill.style.width = "0%";
+      elements.progressTrack.setAttribute("aria-valuenow", "0");
       if (now >= takeStart) dispatch("COUNTIN_COMPLETE");
     } else {
       elements.countin.textContent = "";
+      const seconds = remainingSeconds(now, takeStart, takeEnd);
+      const progress = Math.max(0, Math.min(1, (now - takeStart) / (takeEnd - takeStart)));
+      elements.remaining.textContent = seconds > 0 ? ` ／ 残り ${seconds}秒` : "";
+      elements.progressFill.style.width = `${progress * 100}%`;
+      elements.progressTrack.setAttribute("aria-valuenow", String(Math.round(progress * 100)));
     }
     if (now >= takeStart) {
       const beat = Math.max(0, Math.min(PERFORMANCE.bars * PERFORMANCE.beatsPerBar, (now - takeStart) / synth.beatSec));
@@ -667,6 +701,9 @@ function updateDisplay() {
     }
   } else {
     elements.countin.textContent = "";
+    elements.remaining.textContent = "";
+    elements.progressFill.style.width = "0%";
+    elements.progressTrack.setAttribute("aria-valuenow", "0");
     elements.tensionFill.style.width = "0%";
     document.body.dataset.highTension = "false";
   }
@@ -682,6 +719,7 @@ function showError(error) {
 function normalizeLoadedLog(log) {
   return {
     ...log,
+    scaleId: resolveScaleId(log.worldId, log.scaleId),
     events: log.events.map((event) => ({
       ...event,
       effect: typeof event.effect === "string" ? event.effect : "none",
@@ -715,6 +753,7 @@ function loadMotionScene(scene, filename = "") {
   elements.seed.value = String(seed);
   takeLog = sceneToEvents(scene, {
     worldId: world.id,
+    scaleId: elements.scale.value,
     seed,
     bpm: world.bpm,
     bars: PERFORMANCE.bars,
@@ -754,6 +793,7 @@ async function loadTakeFile(file) {
       loadedTakeFilename = file.name;
       loadedSceneSummary = "";
       elements.world.value = takeLog.worldId;
+      elements.scale.value = takeLog.scaleId;
       elements.seed.value = String(takeLog.seed);
       const quantizeValue = takeLog.quantize.enabled
         ? ({ 1: "4", 2: "8", 4: "16" }[takeLog.quantize.division] ?? "off")
@@ -837,6 +877,7 @@ elements.finishReroll.addEventListener("click", () => {
   rebuildLayout();
 });
 elements.world.addEventListener("change", () => rebuildLayout());
+elements.scale.addEventListener("change", () => rebuildLayout());
 elements.seed.addEventListener("change", () => rebuildLayout());
 elements.scenePlay.addEventListener("click", loadBundledScene);
 elements.takeFile.addEventListener("change", () => {
@@ -888,6 +929,7 @@ narrowScreen.addEventListener("change", renderState);
 
 const initial = parseParams(location.search);
 elements.world.value = initial.world;
+elements.scale.value = initial.scale;
 elements.seed.value = initial.seed || randomSeed();
 rebuildLayout();
 renderState();
