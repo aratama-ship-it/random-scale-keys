@@ -32,6 +32,7 @@ import {
   chordToneWeight,
   chooseChord,
   createLayout,
+  declumpAdjacentDegrees,
   defaultTimbres,
   deriveRoles,
   getScale,
@@ -58,6 +59,9 @@ const countBy = (assignments, field) => assignments.reduce((result, assignment) 
   result[assignment[field]] = (result[assignment[field]] ?? 0) + 1;
   return result;
 }, {});
+const adjacentDegreeCollisions = (keys) => KEY_ROWS.flatMap((row) => [...row].slice(0, -1)
+  .map((letter, index) => [`Key${letter}`, `Key${row[index + 1]}`]))
+  .filter(([left, right]) => keys[left].degree === keys[right].degree);
 
 test("melodicGravity removes ionian tritones in both directions", () => {
   assert.deepEqual(
@@ -139,6 +143,71 @@ test("createLayout is deterministic for the same seed and changes for another se
   assert.deepEqual(createLayout("fixed", "night"), createLayout("fixed", "night"));
   assert.equal(createLayout(1, "daylight").scaleId, "ionian");
   assert.equal(createLayout(1, "night").scaleId, "aeolian");
+});
+
+test("declumpAdjacentDegrees removes collisions while preserving effects, octaves, and role-degree pairs", () => {
+  const roleForDegree = { 1: "stable", 2: "floating", 3: "stable", 4: "tension", 5: "stable" };
+  const keys = Object.fromEntries(KEY_ROWS.flatMap((row) => [...row]).map((letter, index) => {
+    const code = `Key${letter}`;
+    const degree = (index % 5) + 1;
+    const octave = (index % 3) - 1;
+    return [code, {
+      degree,
+      octave,
+      midi: midiForDegreeFromRoot(60, "ionian", degree, octave),
+      role: roleForDegree[degree],
+      effect: SIMPLE_ROW_CODES.includes(code) ? "none" : "delay",
+    }];
+  }));
+  [["KeyQ", "KeyW", 1], ["KeyD", "KeyF", 4], ["KeyB", "KeyN", 5]].forEach(([left, right, degree]) => {
+    [left, right].forEach((code) => {
+      keys[code].degree = degree;
+      keys[code].role = roleForDegree[degree];
+      keys[code].midi = midiForDegreeFromRoot(60, "ionian", degree, keys[code].octave);
+    });
+  });
+  const effects = Object.fromEntries(KEY_CODES.map((code) => [code, keys[code].effect]));
+  const octaves = Object.fromEntries(KEY_CODES.map((code) => [code, keys[code].octave]));
+  const roleDegrees = KEY_CODES.map((code) => [keys[code].role, keys[code].degree].join(":"))
+    .sort();
+
+  assert.ok(adjacentDegreeCollisions(keys).length >= 3);
+  assert.equal(declumpAdjacentDegrees(keys, 60, "ionian"), keys);
+  assert.deepEqual(adjacentDegreeCollisions(keys), []);
+  assert.deepEqual(Object.fromEntries(KEY_CODES.map((code) => [code, keys[code].effect])), effects);
+  assert.deepEqual(Object.fromEntries(KEY_CODES.map((code) => [code, keys[code].octave])), octaves);
+  assert.deepEqual(KEY_CODES.map((code) => [keys[code].role, keys[code].degree].join(":"))
+    .sort(), roleDegrees);
+  KEY_CODES.forEach((code) => {
+    assert.equal(keys[code].midi, midiForDegreeFromRoot(60, "ionian", keys[code].degree, keys[code].octave));
+  });
+});
+
+test("all scale layouts have no adjacent equal degrees across both worlds and five seeds", () => {
+  for (const scale of Object.values(SCALES)) {
+    for (const worldId of ["daylight", "night"]) {
+      for (const seed of [1, 42, 777, 12345, 99999]) {
+        const layout = createLayout(seed, worldId, scale.id);
+        const assignments = Object.values(layout.keys);
+        const roleCounts = allocateKeys(scale.roles);
+        assert.deepEqual(adjacentDegreeCollisions(layout.keys), [], `${scale.id} ${worldId} ${seed}`);
+        assert.deepEqual(
+          { ...Object.fromEntries(Object.keys(roleCounts).map((role) => [role, 0])), ...countBy(assignments, "role") },
+          roleCounts,
+          `${scale.id} ${worldId} ${seed}`,
+        );
+        assert.deepEqual(countBy(assignments, "effect"), EFFECT_COUNTS, `${scale.id} ${worldId} ${seed}`);
+        assert.ok(SIMPLE_ROW_CODES.every((code) => layout.keys[code].effect === "none"), `${scale.id} ${worldId} ${seed}`);
+        assignments.forEach(({ role, degree }) => {
+          assert.ok(scale.roles[role].includes(degree), `${scale.id} ${worldId} ${seed} ${role}:${degree}`);
+        });
+        if (scale.intervals.length === 7 && scale.id !== "hijaz") {
+          assert.equal(assignments.filter(({ degree }) => degree === 7).length, 1, `${scale.id} ${worldId} ${seed}`);
+        }
+        assert.deepEqual(layout, createLayout(seed, worldId, scale.id), `${scale.id} ${worldId} ${seed}`);
+      }
+    }
+  }
 });
 
 test("KEY_NAMES and resolveRootMidi cover all twelve keys in each world's nearest octave", () => {
@@ -248,13 +317,13 @@ test("seven-note scales cap degree 7 at one key except for hijaz", () => {
   });
 });
 
-test("default-key createLayout preserves the full v0.17.0 assignment for seed 42", () => {
+test("default-key createLayout preserves the full v0.18.0 assignment for seed 42", () => {
   const expected = {
-    KeyA: [1, "stable", "none", -1, 48], KeyB: [1, "stable", "sweep", 0, 60], KeyC: [5, "stable", "octave", 0, 67],
-    KeyD: [2, "floating", "none", 1, 74], KeyE: [5, "stable", "arpeggio", -1, 55], KeyF: [2, "floating", "none", 1, 74],
+    KeyA: [3, "stable", "none", -1, 52], KeyB: [2, "floating", "sweep", 0, 62], KeyC: [5, "stable", "octave", 0, 67],
+    KeyD: [2, "floating", "none", 1, 74], KeyE: [5, "stable", "arpeggio", -1, 55], KeyF: [1, "stable", "none", 1, 72],
     KeyG: [6, "floating", "none", 1, 81], KeyH: [3, "stable", "none", 0, 64], KeyI: [2, "floating", "sweep", -1, 50],
-    KeyJ: [3, "stable", "none", 0, 64], KeyK: [4, "tension", "none", 0, 65], KeyL: [3, "stable", "none", -1, 52],
-    KeyM: [6, "floating", "delay", 0, 69], KeyN: [5, "stable", "stutter", 1, 79], KeyO: [2, "floating", "delay", 1, 74],
+    KeyJ: [2, "floating", "none", 0, 62], KeyK: [4, "tension", "none", 0, 65], KeyL: [3, "stable", "none", -1, 52],
+    KeyM: [6, "floating", "delay", 0, 69], KeyN: [5, "stable", "stutter", 1, 79], KeyO: [1, "stable", "delay", 1, 72],
     KeyP: [7, "tension", "arpeggio", 0, 71], KeyQ: [5, "stable", "stutter", 0, 67], KeyR: [4, "tension", "delay", 1, 77],
     KeyS: [4, "tension", "none", 0, 65], KeyT: [1, "stable", "octave", 1, 72], KeyU: [4, "tension", "arpeggio", 0, 65],
     KeyV: [1, "stable", "none", -1, 48], KeyW: [4, "tension", "sweep", -1, 53], KeyX: [4, "tension", "octave", 0, 65],

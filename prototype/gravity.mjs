@@ -699,6 +699,55 @@ export function chordRootMidiFromRoot(rootMidi, scaleId, chordName, octaveNumber
   return (octaveNumber + 1) * 12 + pitchClass;
 }
 
+export function rowNeighbors(code) {
+  const letter = typeof code === "string" && code.startsWith("Key") ? code.slice(3) : "";
+  const row = KEY_ROWS.find((candidate) => candidate.includes(letter));
+  if (!row || letter.length !== 1) return [];
+  const index = row.indexOf(letter);
+  return [row[index - 1], row[index + 1]]
+    .filter(Boolean)
+    .map((neighbor) => `Key${neighbor}`);
+}
+
+export function declumpAdjacentDegrees(keys, rootMidi, scaleId) {
+  const adjacentPairs = KEY_ROWS.flatMap((row) => [...row].slice(0, -1)
+    .map((letter, index) => [`Key${letter}`, `Key${row[index + 1]}`]));
+
+  for (let pass = 0; pass < 6; pass += 1) {
+    let changed = false;
+    adjacentPairs.forEach(([a, b]) => {
+      if (keys[a].degree !== keys[b].degree) return;
+      const otherBNeighbors = rowNeighbors(b).filter((neighbor) => neighbor !== a);
+      const c = KEY_CODES.find((candidate) => {
+        if (candidate === a || candidate === b) return false;
+        const newB = keys[candidate].degree;
+        const newC = keys[b].degree;
+        if (newB === keys[a].degree) return false;
+        if (otherBNeighbors.some((neighbor) => keys[neighbor].degree === newB)) return false;
+        const cNeighbors = rowNeighbors(candidate);
+        if (cNeighbors.filter((neighbor) => neighbor !== b)
+          .some((neighbor) => keys[neighbor].degree === newC)) return false;
+        if (cNeighbors.includes(b) && newC === newB) return false;
+        return true;
+      });
+      if (!c) return;
+
+      const bRole = keys[b].role;
+      const bDegree = keys[b].degree;
+      keys[b].role = keys[c].role;
+      keys[b].degree = keys[c].degree;
+      keys[c].role = bRole;
+      keys[c].degree = bDegree;
+      keys[b].midi = midiForDegreeFromRoot(rootMidi, scaleId, keys[b].degree, keys[b].octave);
+      keys[c].midi = midiForDegreeFromRoot(rootMidi, scaleId, keys[c].degree, keys[c].octave);
+      changed = true;
+    });
+    if (!changed) break;
+  }
+
+  return keys;
+}
+
 export function createLayout(seed, worldId, requestedScaleId, keyChoice) {
   const normalizedSeed = hashSeed(seed);
   const random = mulberry32(normalizedSeed);
@@ -744,6 +793,7 @@ export function createLayout(seed, worldId, requestedScaleId, keyChoice) {
     };
   });
 
+  declumpAdjacentDegrees(keys, rootMidi, scaleId);
   return { seed: normalizedSeed, worldId: world.id, scaleId, rootMidi, key, keys };
 }
 
