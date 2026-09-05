@@ -23,6 +23,8 @@ const SFX_ROOM_SEND = 1.0;
 const SFX_ROOM_WET = 1.0; // 0.6→1.0（実測で調整）
 const PAD_REVERB_MULTIPLIER = 1.2;
 export const HOLD_MAX_SECONDS = 16;
+export const EARLY_REFLECTION_TIMES = Object.freeze([0.005, 0.009, 0.013, 0.016, 0.019]);
+export const EARLY_REFLECTION_DECAY = 0.7;
 
 function midiToFrequency(midi) {
   return 440 * 2 ** ((midi - 69) / 12);
@@ -68,7 +70,7 @@ function openEnvelopeRelease(param, releaseSeconds) {
   };
 }
 
-function makeImpulseResponse(context, random) {
+export function makeImpulseResponse(context, random) {
   const duration = 3;
   const predelay = 0.02;
   const buffer = context.createBuffer(2, Math.ceil(context.sampleRate * duration), context.sampleRate);
@@ -80,6 +82,12 @@ function makeImpulseResponse(context, random) {
         ? 0
         : (random() * 2 - 1) * Math.exp((-6 * (time - predelay)) / (duration - predelay));
     }
+    EARLY_REFLECTION_TIMES.forEach((tapTime, tapIndex) => {
+      const sampleIndex = Math.round(tapTime * context.sampleRate);
+      if (sampleIndex >= data.length) return;
+      const sign = random() < 0.5 ? -1 : 1;
+      data[sampleIndex] += sign * EARLY_REFLECTION_DECAY ** tapIndex;
+    });
   }
   return buffer;
 }
@@ -502,11 +510,11 @@ export function createSynth(context, {
         }));
         releases.push(voice({ midi: note.midi + midiOffset + 12, type: "sine", gain: velocity * gainScale * 0.2 * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
       } else if (timbre === "saw") {
-        releases.push(voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
-        releases.push(voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
+        releases.push(voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: -6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", pan: -0.2, holdOpen }));
+        releases.push(voice({ midi: note.midi + midiOffset, type: "sawtooth", detune: 6, gain: velocity * gainScale * 0.12, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", pan: 0.2, holdOpen }));
       } else if (timbre === "pluck") {
-        releases.push(voice({ midi: note.midi + midiOffset, type: "triangle", detune: 0, gain: velocity * gainScale * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
-        releases.push(voice({ midi: note.midi + midiOffset, type: "triangle", detune: 5, gain: velocity * gainScale * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", holdOpen }));
+        releases.push(voice({ midi: note.midi + midiOffset, type: "triangle", detune: 0, gain: velocity * gainScale * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", pan: -0.15, holdOpen }));
+        releases.push(voice({ midi: note.midi + midiOffset, type: "triangle", detune: 5, gain: velocity * gainScale * 0.18, when: time, length: scheduledLength, envelope, destinationNode, reverb: destinationNode !== leadBus, filter, delaySend: effect === "delay", pan: 0.15, holdOpen }));
         pluckTransient({ gain: velocity * gainScale * 0.08, when: time, cutoff, destinationNode, delaySend: effect === "delay", sweep: effect === "sweep" });
       } else {
         releases.push(fmBell({

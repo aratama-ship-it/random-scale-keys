@@ -215,13 +215,13 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.20.0 waiting screen uses the shared expanded keyboard and updated cadence engine", async () => {
+test("v0.21.0 waiting screen uses the shared expanded keyboard and updated cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../style.css", import.meta.url), "utf8");
   const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8");
-  assert.match(html, /<title>random-scale-keys v0\.20\.0<\/title>/);
-  assert.match(html, /<p class="version">random-scale-keys v0\.20\.0<\/p>/);
+  assert.match(html, /<title>random-scale-keys v0\.21\.0<\/title>/);
+  assert.match(html, /<p class="version">random-scale-keys v0\.21\.0<\/p>/);
   assert.deepEqual(KEY_ROWS.map((row) => row.length), [13, 11, 10]);
   assert.equal(SIMPLE_ROW_INDEX, 1);
   assert.deepEqual(SIMPLE_ROW_CODES, [

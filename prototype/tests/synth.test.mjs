@@ -2,7 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { mulberry32 } from "../gravity.mjs";
-import { createSynth, HOLD_MAX_SECONDS, makeSfxRoomImpulse } from "../synth.js";
+import {
+  createSynth,
+  EARLY_REFLECTION_DECAY,
+  EARLY_REFLECTION_TIMES,
+  HOLD_MAX_SECONDS,
+  makeImpulseResponse,
+  makeSfxRoomImpulse,
+} from "../synth.js";
 
 function audioParam(initial = 0) {
   return {
@@ -28,6 +35,7 @@ function mockContext() {
   const gainNodes = [];
   const convolverNodes = [];
   const oscillatorNodes = [];
+  const stereoPannerNodes = [];
   const params = [];
   const param = (initial = 0) => {
     const value = audioParam(initial);
@@ -41,6 +49,7 @@ function mockContext() {
     gainNodes,
     convolverNodes,
     oscillatorNodes,
+    stereoPannerNodes,
     params,
     createBuffer(channels, length, sampleRate = this.sampleRate) {
       const data = Array.from({ length: channels }, () => new Float32Array(length));
@@ -70,7 +79,11 @@ function mockContext() {
     createBiquadFilter: () => audioNode({ frequency: param(), Q: param() }),
     createDelay: () => audioNode({ delayTime: param() }),
     createChannelMerger: () => audioNode(),
-    createStereoPanner: () => audioNode({ pan: param() }),
+    createStereoPanner() {
+      const node = audioNode({ pan: param() });
+      stereoPannerNodes.push(node);
+      return node;
+    },
     createOscillator() {
       const node = audioNode({
         frequency: param(),
@@ -86,6 +99,95 @@ function mockContext() {
     createBufferSource: () => audioNode({ start() {}, stop() {}, buffer: null }),
   };
 }
+
+function legacyMainImpulseTail(context, random) {
+  const duration = 3;
+  const predelay = 0.02;
+  const channels = Array.from({ length: 2 }, () => new Float32Array(Math.ceil(context.sampleRate * duration)));
+  for (let channel = 0; channel < 2; channel += 1) {
+    const data = channels[channel];
+    for (let index = 0; index < data.length; index += 1) {
+      const time = index / context.sampleRate;
+      data[index] = time < predelay
+        ? 0
+        : (random() * 2 - 1) * Math.exp((-6 * (time - predelay)) / (duration - predelay));
+    }
+  }
+  return channels;
+}
+
+function rms(values) {
+  let sum = 0;
+  for (let index = 0; index < values.length; index += 1) sum += values[index] ** 2;
+  return Math.sqrt(sum / values.length);
+}
+
+function peak(values) {
+  let max = 0;
+  for (let index = 0; index < values.length; index += 1) max = Math.max(max, Math.abs(values[index]));
+  return max;
+}
+
+test("main reverb impulse adds five deterministic early reflections before the tail", () => {
+  const context = mockContext();
+  const impulse = makeImpulseResponse(context, mulberry32(1));
+
+  assert.equal(impulse.numberOfChannels, 2);
+  assert.equal(impulse.length, 3000);
+  for (let channel = 0; channel < 2; channel += 1) {
+    const data = impulse.getChannelData(channel);
+    EARLY_REFLECTION_TIMES.forEach((tapTime, tapIndex) => {
+      const sampleIndex = Math.round(tapTime * context.sampleRate);
+      assert.notEqual(data[sampleIndex], 0, `channel ${channel} tap ${tapIndex}`);
+      assert.ok(Math.abs(Math.abs(data[sampleIndex]) - EARLY_REFLECTION_DECAY ** tapIndex) < 1e-6);
+    });
+    assert.equal(data[0], 0);
+    assert.equal(data[Math.round(0.004 * context.sampleRate)], 0);
+  }
+  assert.notDeepEqual(impulse.getChannelData(0).slice(0, 20), impulse.getChannelData(1).slice(0, 20));
+});
+
+test("main reverb impulse leaves the diffuse tail at the legacy scale", () => {
+  const context = mockContext();
+  const impulse = makeImpulseResponse(context, mulberry32(1));
+  const legacyTail = legacyMainImpulseTail(context, mulberry32(1));
+  const tailStart = Math.round(0.02 * context.sampleRate);
+  const actualLeftTail = impulse.getChannelData(0).slice(tailStart);
+  const expectedLeftTail = legacyTail[0].slice(tailStart);
+  assert.deepEqual(actualLeftTail, expectedLeftTail);
+
+  for (let channel = 0; channel < 2; channel += 1) {
+    const actualTail = impulse.getChannelData(channel).slice(tailStart);
+    const expectedTail = legacyTail[channel].slice(tailStart);
+    assert.ok(Math.abs(rms(actualTail) - rms(expectedTail)) < 0.02);
+    assert.ok(peak(actualTail) <= 1);
+    assert.ok(peak(actualTail) > 0.9);
+  }
+});
+
+test("main reverb impulse remains deterministic for the same seed", () => {
+  const context = mockContext();
+  const first = makeImpulseResponse(context, mulberry32(8));
+  const second = makeImpulseResponse(context, mulberry32(8));
+
+  assert.deepEqual(first.getChannelData(0), second.getChannelData(0));
+  assert.deepEqual(first.getChannelData(1), second.getChannelData(1));
+});
+
+test("saw and pluck lead unison voices are panned while epiano and bell stay unchanged", () => {
+  [
+    ["saw", [-0.2, 0.2]],
+    ["pluck", [-0.15, 0.15]],
+    ["epiano", []],
+    ["bell", []],
+  ].forEach(([timbre, expectedPanValues]) => {
+    const context = mockContext();
+    const synth = createSynth(context, { worldId: "daylight", scaleId: "ionian", bpm: 100 });
+    synth.scheduleLead({ midi: 60, degree: 1 }, 1, 0.3, 0.8, "none", 0, { timbre });
+    assert.deepEqual(context.stereoPannerNodes.map((node) => node.pan.value), expectedPanValues, timbre);
+    assert.ok(context.stereoPannerNodes.every((node) => Math.abs(node.pan.value) < 1));
+  });
+});
 
 test("makeSfxRoomImpulse has the specified length, predelay, and exponential decay", () => {
   const context = mockContext();
