@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { KEY_ROWS, SIMPLE_ROW_CODES, SIMPLE_ROW_INDEX } from "../../prototype/gravity.mjs";
+import { KEY_LABELS, KEY_ROWS, SIMPLE_ROW_CODES, SIMPLE_ROW_INDEX } from "../../prototype/gravity.mjs";
 
 import {
   diagnosticDisabledForState,
@@ -215,23 +215,31 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.19.0 waiting screen uses the shared three-row keyboard and updated cadence engine", async () => {
+test("v0.20.0 waiting screen uses the shared expanded keyboard and updated cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../style.css", import.meta.url), "utf8");
   const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8");
-  assert.match(html, /<title>random-scale-keys v0\.19\.0<\/title>/);
-  assert.match(html, /<p class="version">random-scale-keys v0\.19\.0<\/p>/);
-  assert.deepEqual(KEY_ROWS, ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
+  assert.match(html, /<title>random-scale-keys v0\.20\.0<\/title>/);
+  assert.match(html, /<p class="version">random-scale-keys v0\.20\.0<\/p>/);
+  assert.deepEqual(KEY_ROWS.map((row) => row.length), [13, 11, 10]);
   assert.equal(SIMPLE_ROW_INDEX, 1);
-  assert.deepEqual(SIMPLE_ROW_CODES, [...KEY_ROWS[1]].map((letter) => `Key${letter}`));
+  assert.deepEqual(SIMPLE_ROW_CODES, [
+    "KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL", "Semicolon", "Quote",
+  ]);
+  assert.equal(KEY_LABELS.Semicolon, ";");
+  assert.equal(KEY_LABELS.Quote, "'");
+  assert.equal(KEY_LABELS.Backslash, "\\");
   assert.doesNotMatch(main, /const KEY_ROWS\s*=/);
   assert.match(main, /\bKEY_ROWS,/);
+  assert.match(main, /\bKEY_LABELS,/);
   assert.equal(main.match(/KEY_ROWS\.forEach/g)?.length, 2);
-  assert.match(readme, /ASDFGHJKL の段はすべて効果なし/);
-  assert.match(readme, /7音階では度数の配分を[\s\S]*度数7だけ1キー/);
+  assert.match(readme, /ASDFGHJKL;' のホーム段11キーはすべて効果なし/);
+  assert.match(readme, /34キー全体で均等/);
+  assert.match(readme, /`Semicolon` \/ `Quote`/);
+  assert.match(readme, /IntlYen[\s\S]*IntlRo[\s\S]*将来の拡張候補/);
   assert.match(readme, /隣接するタイルは同じ度数にならない/);
-  assert.match(readme, /同じseedでもv0\.18\.0以前とは配置が異なる/);
+  assert.match(readme, /同じseedでもv0\.19\.0以前とは配置が異なる/);
   assert.match(html, /id="status-key">キー C/);
   assert.match(html, /<select id="key" name="key">/);
   const keySelect = html.match(/<select id="key" name="key">[\s\S]*?<\/select>/)?.[0];

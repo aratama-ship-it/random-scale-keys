@@ -18,6 +18,7 @@ import {
   getWorld,
   harmonyScaleId,
   isResolution,
+  KEY_LABELS,
   KEY_NAMES,
   KEY_ROWS,
   LEAD_TIMBRES,
@@ -264,11 +265,11 @@ function updateContourGeometry() {
     const bottom = window.innerHeight - cssNumber("--space-4");
     const top = bottom - KEY_ROWS.length * keySize - (KEY_ROWS.length - 1) * keyGap;
     const widestWidth = KEY_ROWS[0].length * keySize + (KEY_ROWS[0].length - 1) * keyGap;
-    KEY_ROWS.forEach((letters, rowIndex) => {
+    KEY_ROWS.forEach((codes, rowIndex) => {
       const rowLeft = (window.innerWidth - widestWidth) / 2 + rowOffsetPx(rowIndex, keySize);
       const rowTop = top + rowIndex * (keySize + keyGap);
-      [...letters].forEach((letter, columnIndex) => {
-        keyRects.set(`Key${letter}`, {
+      codes.forEach((code, columnIndex) => {
+        keyRects.set(code, {
           left: rowLeft + columnIndex * (keySize + keyGap),
           top: rowTop,
           width: keySize,
@@ -310,18 +311,17 @@ function renderLayout() {
     sfxRow.append(key);
   }
   elements.keyboard.append(sfxRow);
-  KEY_ROWS.forEach((letters, rowIndex) => {
+  KEY_ROWS.forEach((codes, rowIndex) => {
     const row = document.createElement("div");
     row.className = "key-row";
     row.style.marginLeft = `${rowOffsetPx(rowIndex, keySize)}px`;
-    for (const letter of letters) {
-      const code = `Key${letter}`;
+    for (const code of codes) {
       const assignment = layout.keys[code];
       const key = document.createElement("button");
       key.type = "button";
       key.className = `key key-${assignment.role}`;
       key.dataset.code = code;
-      key.setAttribute("aria-label", `${letter}、度数${assignment.degree}、${assignment.role}、${assignment.effect}`);
+      key.setAttribute("aria-label", `${KEY_LABELS[code]}、度数${assignment.degree}、${assignment.role}、${assignment.effect}`);
       key.innerHTML = `<span class="key-degree">${assignment.degree}</span><span class="key-meta">${ROLE_MARKS[assignment.role]} ${EFFECT_LABELS[assignment.effect]}</span>`;
       key.addEventListener("pointerdown", (event) => {
         event.preventDefault();

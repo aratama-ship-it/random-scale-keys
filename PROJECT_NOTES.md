@@ -490,3 +490,21 @@
 - **環境の落とし穴（今回発生）**: `~/.codex/config.toml` の既定モデルが `gpt-6-astra` になっており、この Mac の Codex CLI
   （0.144.3）が対応しておらずジョブが即エラー終了（EXIT=1、何も実装されない）。`-m gpt-5.5` を明示して再投入で解決。
   以後このマシンでの委譲は `-m gpt-5.5` を明示する
+
+### 2026-09-05 M16 app v0.20.0 記号キーまで使う（Codex実装・Claude検証）
+
+- 本人要望「JISやUSでもキーボードは横に長いので記号まで全部使う」→ 確認の結果、記号もA〜Zと同じ音階音キー、
+  新記号もホーム段扱い（効果なし）で決定。`SPEC_M16.md`
+- 追加した8キー: 1段目に `[` `]` `\`（BracketLeft/BracketRight/Backslash）、ホーム段に `;` `'`（Semicolon/Quote）、
+  3段目に `,` `.` `/`（Comma/Period/Slash）。IntlYen・IntlRo など JIS専用キーは対象外（将来拡張候補として README に記載）
+- `KEY_ROWS` を文字列からコード配列の配列に作り替え（`KEY_CODES = KEY_ROWS.flat()`、行×列の物理順）。
+  `rowNeighbors`／`declumpAdjacentDegrees`（M14）／`renderLayout`（main.js）を「Key+文字」決め打ちからコード直接参照に書き換え。
+  `EFFECT_COUNTS.none` を 11→19（特殊効果 delay/sweep/octave/stutter/arpeggio は 4/3/3/2/3 のまま）
+- **Claude が独立再検証**（420通り: 21音階×2世界×10 seed）: 全34キーに割当あり、効果内訳一致、ホーム段11キー全部 `none`、
+  7音階の度数配分が `{1:6,2:6,3:6,4:5,5:5,6:5,7:1}`（合計34）と一致、度数7が1キー、隣接同度数（M14）0件、決定論0件の非決定
+- ブラウザ実測: console error 0、1段目/2段目/3段目が13/11/10キーで表示、新記号キーが正しい `data-code` で並ぶ
+  （末尾: `KeyP,BracketLeft,BracketRight,Backslash` / `KeyL,Semicolon,Quote` / `KeyM,Comma,Period,Slash`）。
+  `layout.keys.Semicolon` の中身を直接確認（degree 6・role floating・effect none）
+- **未確認**: 実際にキーを押しての発音（AudioContextはユーザー操作なしでは開始できず、ヘッドレス環境では試せない。
+  既知の環境制約。本人が公開URLで確認）
+- テスト prototype 90/90・app 40/40、`node --check`、版表示 v0.20.0

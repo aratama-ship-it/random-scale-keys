@@ -13,6 +13,7 @@ import {
   approachDegree,
   EFFECT_COUNTS,
   KEY_CODES,
+  KEY_LABELS,
   KEY_NAMES,
   KEY_ROWS,
   SCALES,
@@ -48,6 +49,7 @@ import {
   reverbSendFromSilence,
   resolveRootMidi,
   roleForDegree,
+  rowNeighbors,
   sectionForBar,
   scoreChord,
   tonicChordForScale,
@@ -61,8 +63,8 @@ const countBy = (assignments, field) => assignments.reduce((result, assignment) 
   result[assignment[field]] = (result[assignment[field]] ?? 0) + 1;
   return result;
 }, {});
-const adjacentDegreeCollisions = (keys) => KEY_ROWS.flatMap((row) => [...row].slice(0, -1)
-  .map((letter, index) => [`Key${letter}`, `Key${row[index + 1]}`]))
+const adjacentDegreeCollisions = (keys) => KEY_ROWS.flatMap((row) => row.slice(0, -1)
+  .map((code, index) => [code, row[index + 1]]))
   .filter(([left, right]) => keys[left].degree === keys[right].degree);
 const emptyRoleCounts = (scale) => Object.fromEntries(Object.keys(scale.roles).map((role) => [role, 0]));
 const roleCountsFromDegreeTargets = (scaleId, targets) => Object.entries(targets).reduce((counts, [degree, value]) => {
@@ -162,8 +164,7 @@ test("createLayout is deterministic for the same seed and changes for another se
 
 test("declumpAdjacentDegrees removes collisions while preserving effects, octaves, and role-degree pairs", () => {
   const testRoleForDegree = { 1: "stable", 2: "floating", 3: "stable", 4: "tension", 5: "stable" };
-  const keys = Object.fromEntries(KEY_ROWS.flatMap((row) => [...row]).map((letter, index) => {
-    const code = `Key${letter}`;
+  const keys = Object.fromEntries(KEY_ROWS.flatMap((row) => row).map((code, index) => {
     const degree = (index % 5) + 1;
     const octave = (index % 3) - 1;
     return [code, {
@@ -255,12 +256,44 @@ test("root-based note and chord helpers transpose without changing the legacy wr
   assert.equal(chordRootMidiFromRoot(57, "aeolian", "i", 2), chordRootMidi("night", "aeolian", "i", 2));
 });
 
-test("all scale layouts keep exact role and effect counts with a simple home row", () => {
-  assert.deepEqual(EFFECT_COUNTS, { none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
-  assert.equal(Object.values(EFFECT_COUNTS).reduce((sum, value) => sum + value, 0), KEY_CODES.length);
-  assert.deepEqual(KEY_ROWS, ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
+test("expanded physical keyboard rows expose 34 labeled lead keys with a simple home row", () => {
+  assert.equal(KEY_CODES.length, 34);
+  assert.deepEqual(KEY_ROWS.map((row) => row.length), [13, 11, 10]);
+  assert.deepEqual(KEY_CODES, KEY_ROWS.flat());
   assert.equal(SIMPLE_ROW_INDEX, 1);
-  assert.deepEqual(SIMPLE_ROW_CODES, [...KEY_ROWS[SIMPLE_ROW_INDEX]].map((letter) => `Key${letter}`));
+  assert.deepEqual(SIMPLE_ROW_CODES, [
+    "KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL", "Semicolon", "Quote",
+  ]);
+  assert.equal(SIMPLE_ROW_CODES.length, 11);
+  assert.equal(Object.keys(KEY_LABELS).length, KEY_CODES.length);
+  KEY_CODES.forEach((code) => assert.equal(typeof KEY_LABELS[code], "string", code));
+  assert.deepEqual({
+    BracketLeft: KEY_LABELS.BracketLeft,
+    BracketRight: KEY_LABELS.BracketRight,
+    Backslash: KEY_LABELS.Backslash,
+    Semicolon: KEY_LABELS.Semicolon,
+    Quote: KEY_LABELS.Quote,
+    Comma: KEY_LABELS.Comma,
+    Period: KEY_LABELS.Period,
+    Slash: KEY_LABELS.Slash,
+  }, {
+    BracketLeft: "[",
+    BracketRight: "]",
+    Backslash: "\\",
+    Semicolon: ";",
+    Quote: "'",
+    Comma: ",",
+    Period: ".",
+    Slash: "/",
+  });
+  assert.deepEqual(rowNeighbors("BracketLeft"), ["KeyP", "BracketRight"]);
+  assert.deepEqual(rowNeighbors("Semicolon"), ["KeyL", "Quote"]);
+  assert.deepEqual(rowNeighbors("Slash"), ["Period"]);
+});
+
+test("all scale layouts keep exact role and effect counts with a simple home row", () => {
+  assert.deepEqual(EFFECT_COUNTS, { none: 19, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
+  assert.equal(Object.values(EFFECT_COUNTS).reduce((sum, value) => sum + value, 0), KEY_CODES.length);
   const nonSimpleEffectCounts = { ...EFFECT_COUNTS, none: EFFECT_COUNTS.none - SIMPLE_ROW_CODES.length };
 
   for (const scale of Object.values(SCALES)) {
@@ -289,7 +322,7 @@ test("all scale layouts keep exact role and effect counts with a simple home row
 });
 
 test("degreeTargets balances seven-note scales and leaves shorter scales unchanged", () => {
-  const expected = { 1: 5, 2: 5, 3: 4, 4: 4, 5: 4, 6: 3, 7: 1 };
+  const expected = { 1: 6, 2: 6, 3: 6, 4: 5, 5: 5, 6: 5, 7: 1 };
   assert.deepEqual(degreeTargets("ionian"), expected);
   assert.equal(Object.values(degreeTargets("ionian")).reduce((sum, count) => sum + count, 0), KEY_CODES.length);
   assert.equal(degreeTargets("major_pentatonic"), null);
@@ -323,17 +356,21 @@ test("seven-note layouts match degreeTargets and shorter scales keep degree 7 ab
   });
 });
 
-test("default-key createLayout preserves the full v0.19.0 assignment for seed 42", () => {
+test("default-key createLayout preserves the full v0.20.0 assignment for seed 42", () => {
   const expected = {
-    KeyA: [1, "stable", "none", -1, 48], KeyB: [2, "floating", "sweep", 0, 62], KeyC: [1, "stable", "octave", 0, 60],
-    KeyD: [1, "stable", "none", -1, 48], KeyE: [2, "floating", "arpeggio", 1, 74], KeyF: [4, "tension", "none", -1, 53],
-    KeyG: [3, "stable", "none", 0, 64], KeyH: [1, "stable", "none", 0, 60], KeyI: [4, "tension", "sweep", 0, 65],
-    KeyJ: [2, "floating", "none", 0, 62], KeyK: [5, "stable", "none", -1, 55], KeyL: [1, "stable", "none", -1, 48],
-    KeyM: [4, "tension", "delay", -1, 53], KeyN: [3, "stable", "stutter", 1, 76], KeyO: [3, "stable", "delay", 0, 64],
-    KeyP: [5, "stable", "arpeggio", 1, 79], KeyQ: [2, "floating", "stutter", 0, 62], KeyR: [6, "floating", "delay", 1, 81],
-    KeyS: [6, "floating", "none", 0, 69], KeyT: [2, "floating", "octave", 0, 62], KeyU: [6, "floating", "arpeggio", 0, 69],
-    KeyV: [5, "stable", "none", 0, 67], KeyW: [7, "tension", "sweep", 0, 71], KeyX: [5, "stable", "octave", -1, 55],
-    KeyY: [3, "stable", "delay", 1, 76], KeyZ: [4, "tension", "none", 0, 65],
+    KeyQ: [6, "floating", "octave", 0, 69], KeyW: [5, "stable", "delay", 1, 79], KeyE: [6, "floating", "none", 0, 69],
+    KeyR: [1, "stable", "none", 1, 72], KeyT: [2, "floating", "sweep", 0, 62], KeyY: [4, "tension", "arpeggio", 0, 65],
+    KeyU: [5, "stable", "arpeggio", 0, 67], KeyI: [1, "stable", "sweep", 0, 60], KeyO: [4, "tension", "none", 0, 65],
+    KeyP: [1, "stable", "none", -1, 48], BracketLeft: [3, "stable", "sweep", 1, 76],
+    BracketRight: [6, "floating", "delay", 0, 69], Backslash: [3, "stable", "octave", -1, 52],
+    KeyA: [5, "stable", "none", 1, 79], KeyS: [6, "floating", "none", 0, 69], KeyD: [1, "stable", "none", -1, 48],
+    KeyF: [2, "floating", "none", 0, 62], KeyG: [3, "stable", "none", -1, 52], KeyH: [2, "floating", "none", 1, 74],
+    KeyJ: [1, "stable", "none", 0, 60], KeyK: [2, "floating", "none", 1, 74], KeyL: [5, "stable", "none", -1, 55],
+    Semicolon: [6, "floating", "none", 1, 81], Quote: [4, "tension", "none", 0, 65],
+    KeyZ: [2, "floating", "none", -1, 50], KeyX: [4, "tension", "arpeggio", 0, 65], KeyC: [3, "stable", "none", -1, 52],
+    KeyV: [2, "floating", "octave", 0, 62], KeyB: [3, "stable", "delay", -1, 52], KeyN: [1, "stable", "stutter", 0, 60],
+    KeyM: [7, "tension", "none", 0, 71], Comma: [5, "stable", "delay", 1, 79], Period: [3, "stable", "none", -1, 52],
+    Slash: [4, "tension", "stutter", 1, 77],
   };
   const layout = createLayout(42, "daylight");
   assert.equal(layout.rootMidi, 60);
@@ -388,8 +425,8 @@ test("SCALES uses derived ionian roles and the explicit legacy aeolian roles", (
 });
 
 test("allocateKeys follows scale-degree proportions and always totals KEY_CODES.length", () => {
-  assert.deepEqual(allocateKeys(SCALES.ionian.roles), { stable: 12, floating: 7, tension: 7 });
-  assert.deepEqual(allocateKeys(SCALES.major_pentatonic.roles), { stable: 16, floating: 10, tension: 0 });
+  assert.deepEqual(allocateKeys(SCALES.ionian.roles), { stable: 15, floating: 10, tension: 9 });
+  assert.deepEqual(allocateKeys(SCALES.major_pentatonic.roles), { stable: 21, floating: 13, tension: 0 });
   Object.values(SCALES).forEach((scale) => {
     assert.equal(Object.values(allocateKeys(scale.roles)).reduce((sum, count) => sum + count, 0), KEY_CODES.length);
   });

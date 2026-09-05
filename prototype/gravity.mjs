@@ -1,14 +1,25 @@
-export const KEY_CODES = Object.freeze(
-  Array.from({ length: 26 }, (_, index) => `Key${String.fromCharCode(65 + index)}`),
-);
-export const KEY_ROWS = Object.freeze(["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
+export const KEY_ROWS = Object.freeze([
+  Object.freeze([..."QWERTYUIOP"].map((letter) => `Key${letter}`).concat(["BracketLeft", "BracketRight", "Backslash"])),
+  Object.freeze([..."ASDFGHJKL"].map((letter) => `Key${letter}`).concat(["Semicolon", "Quote"])),
+  Object.freeze([..."ZXCVBNM"].map((letter) => `Key${letter}`).concat(["Comma", "Period", "Slash"])),
+]);
+export const KEY_CODES = Object.freeze(KEY_ROWS.flat());
+export const KEY_LABELS = Object.freeze(Object.fromEntries([
+  ...KEY_CODES.filter((code) => code.startsWith("Key")).map((code) => [code, code.slice(3)]),
+  ["BracketLeft", "["],
+  ["BracketRight", "]"],
+  ["Backslash", "\\"],
+  ["Semicolon", ";"],
+  ["Quote", "'"],
+  ["Comma", ","],
+  ["Period", "."],
+  ["Slash", "/"],
+]));
 export const SIMPLE_ROW_INDEX = 1;
-export const SIMPLE_ROW_CODES = Object.freeze(
-  [...KEY_ROWS[SIMPLE_ROW_INDEX]].map((letter) => `Key${letter}`),
-);
+export const SIMPLE_ROW_CODES = Object.freeze([...KEY_ROWS[SIMPLE_ROW_INDEX]]);
 export const KEY_NAMES = Object.freeze(["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"]);
 
-export const EFFECT_COUNTS = Object.freeze({ none: 11, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
+export const EFFECT_COUNTS = Object.freeze({ none: 19, delay: 4, sweep: 3, octave: 3, stutter: 2, arpeggio: 3 });
 export const ARPEGGIO_GAINS = Object.freeze([1, 0.85]);
 const ARPEGGIO_SIXTH_SEMITONES = 9;
 export const LEAD_TIMBRES = Object.freeze(["epiano", "saw", "pluck", "bell"]);
@@ -730,18 +741,15 @@ export function chordRootMidiFromRoot(rootMidi, scaleId, chordName, octaveNumber
 }
 
 export function rowNeighbors(code) {
-  const letter = typeof code === "string" && code.startsWith("Key") ? code.slice(3) : "";
-  const row = KEY_ROWS.find((candidate) => candidate.includes(letter));
-  if (!row || letter.length !== 1) return [];
-  const index = row.indexOf(letter);
-  return [row[index - 1], row[index + 1]]
-    .filter(Boolean)
-    .map((neighbor) => `Key${neighbor}`);
+  const row = KEY_ROWS.find((candidate) => candidate.includes(code));
+  if (!row) return [];
+  const index = row.indexOf(code);
+  return [row[index - 1], row[index + 1]].filter(Boolean);
 }
 
 export function declumpAdjacentDegrees(keys, rootMidi, scaleId) {
-  const adjacentPairs = KEY_ROWS.flatMap((row) => [...row].slice(0, -1)
-    .map((letter, index) => [`Key${letter}`, `Key${row[index + 1]}`]));
+  const adjacentPairs = KEY_ROWS.flatMap((row) => row.slice(0, -1)
+    .map((code, index) => [code, row[index + 1]]));
 
   for (let pass = 0; pass < 6; pass += 1) {
     let changed = false;
