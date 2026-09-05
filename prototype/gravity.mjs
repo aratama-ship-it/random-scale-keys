@@ -269,6 +269,36 @@ export function getScale(scaleId) {
   return SCALES[scaleId];
 }
 
+export function degreeTargets(scaleId) {
+  const scale = getScale(scaleId);
+  const degreeCount = scale.intervals.length;
+  if (degreeCount < 7) return null;
+
+  const base = Math.floor(KEY_CODES.length / degreeCount);
+  let remainder = KEY_CODES.length - base * degreeCount;
+  const targets = Object.fromEntries(
+    Array.from({ length: degreeCount }, (_, index) => {
+      const degree = index + 1;
+      const count = base + (remainder > 0 ? 1 : 0);
+      remainder = Math.max(0, remainder - 1);
+      return [degree, count];
+    }),
+  );
+
+  if (targets[7] > 1) {
+    let freed = targets[7] - 1;
+    targets[7] = 1;
+    for (let degree = 1; freed > 0; degree += 1) {
+      if (degree > degreeCount) degree = 1;
+      if (degree === 7) continue;
+      targets[degree] += 1;
+      freed -= 1;
+    }
+  }
+
+  return targets;
+}
+
 export function harmonyScaleId(scaleId) {
   getScale(scaleId);
   return HARMONY_PARENT[scaleId] ?? scaleId;
@@ -756,32 +786,45 @@ export function createLayout(seed, worldId, requestedScaleId, keyChoice) {
   const rootMidi = resolveRootMidi(worldId, keyChoice, normalizedSeed);
   const key = rootMidi % 12;
   const scale = getScale(scaleId);
-  const roleCounts = allocateKeys(scale.roles);
-  const roles = shuffled(expandedCounts(roleCounts), random);
+  const targets = degreeTargets(scaleId);
+  let degreePool = null;
+  let roles = null;
+  let roleCounts = null;
+  if (targets) {
+    degreePool = shuffled(
+      Object.entries(targets).flatMap(([degree, count]) => Array(count).fill(Number(degree))),
+      random,
+    );
+  } else {
+    roleCounts = allocateKeys(scale.roles);
+    roles = shuffled(expandedCounts(roleCounts), random);
+  }
   const remainingEffectCounts = {
     ...EFFECT_COUNTS,
     none: EFFECT_COUNTS.none - SIMPLE_ROW_CODES.length,
   };
   const effects = shuffled(expandedCounts(remainingEffectCounts), random);
-  const degreesByRole = Object.fromEntries(
-    Object.entries(roleCounts).map(([role, count]) => [
-      role,
-      balancedDegrees(
-        scale.roles[role],
-        count,
-        random,
-        scale.roles[role].length > 1 && scale.roles[role].includes(7) ? { 7: 1 } : {},
-      ),
-    ]),
-  );
+  const degreesByRole = roleCounts
+    ? Object.fromEntries(
+      Object.entries(roleCounts).map(([role, count]) => [
+        role,
+        balancedDegrees(
+          scale.roles[role],
+          count,
+          random,
+          scale.roles[role].length > 1 && scale.roles[role].includes(7) ? { 7: 1 } : {},
+        ),
+      ]),
+    )
+    : null;
   const roleOffsets = { stable: 0, floating: 0, tension: 0 };
   const simpleRowCodeSet = new Set(SIMPLE_ROW_CODES);
   let effectOffset = 0;
   const keys = {};
 
   KEY_CODES.forEach((code, index) => {
-    const role = roles[index];
-    const degree = degreesByRole[role][roleOffsets[role]++];
+    const degree = degreePool ? degreePool[index] : degreesByRole[roles[index]][roleOffsets[roles[index]]++];
+    const role = degreePool ? roleForDegree(scaleId, degree) : roles[index];
     const octaveRoll = random();
     const octave = octaveRoll < 0.5 ? 0 : octaveRoll < 0.75 ? -1 : 1;
     keys[code] = {

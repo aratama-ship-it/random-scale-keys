@@ -215,13 +215,13 @@ test("pressTracker retains the maximum after keys are released", () => {
   assert.deepEqual(tracker.maxKeys, ["KeyA", "KeyB", "KeyC"]);
 });
 
-test("v0.18.0 waiting screen uses the shared three-row keyboard and updated cadence engine", async () => {
+test("v0.19.0 waiting screen uses the shared three-row keyboard and updated cadence engine", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../main.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../style.css", import.meta.url), "utf8");
   const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8");
-  assert.match(html, /<title>random-scale-keys v0\.18\.0<\/title>/);
-  assert.match(html, /<p class="version">random-scale-keys v0\.18\.0<\/p>/);
+  assert.match(html, /<title>random-scale-keys v0\.19\.0<\/title>/);
+  assert.match(html, /<p class="version">random-scale-keys v0\.19\.0<\/p>/);
   assert.deepEqual(KEY_ROWS, ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]);
   assert.equal(SIMPLE_ROW_INDEX, 1);
   assert.deepEqual(SIMPLE_ROW_CODES, [...KEY_ROWS[1]].map((letter) => `Key${letter}`));
@@ -229,9 +229,9 @@ test("v0.18.0 waiting screen uses the shared three-row keyboard and updated cade
   assert.match(main, /\bKEY_ROWS,/);
   assert.equal(main.match(/KEY_ROWS\.forEach/g)?.length, 2);
   assert.match(readme, /ASDFGHJKL の段はすべて効果なし/);
-  assert.match(readme, /7音階ではタイルに「7」と出る鍵を\s*1キーだけ/);
+  assert.match(readme, /7音階では度数の配分を[\s\S]*度数7だけ1キー/);
   assert.match(readme, /隣接するタイルは同じ度数にならない/);
-  assert.match(readme, /同じseedでもv0\.17\.0以前とは配置が異なる/);
+  assert.match(readme, /同じseedでもv0\.18\.0以前とは配置が異なる/);
   assert.match(html, /id="status-key">キー C/);
   assert.match(html, /<select id="key" name="key">/);
   const keySelect = html.match(/<select id="key" name="key">[\s\S]*?<\/select>/)?.[0];
